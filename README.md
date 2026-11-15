@@ -1,300 +1,300 @@
-<!-- managed-by: vgi-starters (edit upstream in shared/README.md.tmpl, then run tools/render.py) -->
 <p align="center">
   <img src="https://query.farm/media-kit/products/vgi/vgi-logo.png" alt="Vector Gateway Interface (VGI)" width="320">
 </p>
 
-<p align="center"><em>A Query.Farm VGI worker for DuckDB, written in Go.</em></p>
+# Query Google Cloud Pub/Sub Topics, Subscriptions and Backlog With SQL in DuckDB
 
-# VGI Pubsub Worker — Go
+> **vgi-pubsub** · a [Query.Farm](https://query.farm) VGI worker
 
 [![CI](https://github.com/Query-farm/vgi-pubsub/actions/workflows/ci.yml/badge.svg)](https://github.com/Query-farm/vgi-pubsub/actions/workflows/ci.yml)
 [![vgi worker: query.farm](https://query.farm/media-kit/shields/vgi-worker.svg)](https://query.farm)
 
-[VGI](https://query.farm/vgi) lets DuckDB call functions that live in a separate
-process: your code, in any language, exposed as ordinary SQL. This worker adds
-three example functions that you rename and replace with your own:
+The Pub/Sub console shows one resource at a time. This worker turns a Google Cloud project's
+Pub/Sub setup into SQL tables in DuckDB, so you can ask questions across all of it: which
+topics have no subscriptions, which subscriptions have no dead-letter policy, who is granted
+`allUsers`, which consumers are falling behind. Join the answers with anything else DuckDB reads.
 
-| Function | Kind | Shows you how to |
-|---|---|---|
-| `greet(name)` / `greet(name, style)` | scalar | vectorize over a column, overload, constrain a constant |
-| `sequence_table(count, step := 1)` | table | stream rows in batches, take named arguments |
-| `fetch_items(base_url, page_size := 100)` | table | page through a REST API, retry, read a secret |
+- **Resources**: topics (labels, retention, schema settings, Cloud KMS key, storage policy,
+  import-topic ingestion settings), subscriptions (pull / push / BigQuery / Cloud Storage, ack
+  deadline, retention, filter, dead-letter and retry policy, exactly-once, ordering; the push
+  endpoint is reduced to its **host**, never its path, query or auth audience), snapshots,
+  schemas and every schema revision with its definition.
+- **IAM**: resource-level policies of topics, subscriptions, snapshots and schemas, flattened to
+  one row per role and member, with conditions. Policies that cannot be read show up as rows
+  with `error` set, not as silently missing resources.
+- **Backlog and throughput**: Cloud Monitoring time series (`num_undelivered_messages`,
+  `oldest_unacked_message_age`, `send_request_count`, ...) as long rows in the same shape as
+  [vgi-prometheus](https://github.com/Query-farm/vgi-prometheus) (`labels MAP`, `ts`, `value`),
+  and the current consumer lag per subscription.
+- **Messages, opt-in only**: replay a topic's *retained* messages through a temporary
+  subscription that the worker creates, drains and deletes. **Existing subscriptions are never
+  pulled from.** See [Reading messages](#reading-messages-and-why-it-is-opt-in).
 
+Everything else is read-only: `GET` calls plus `getIamPolicy` / `testIamPermissions`.
 
 ## Quick start
 
-**Prerequisites:** Go 1.26+ and [uv](https://docs.astral.sh/uv/) (it runs the SQL
-test runner and the metadata checker).
-
-```bash
-make build
-```
-
-Then open DuckDB 2.0 or [Haybarn](https://query.farm/products/haybarn) and attach the
-worker. `LOCATION` is the command DuckDB runs to start it; use an absolute path,
-because a relative one resolves against DuckDB's working directory.
-
-**DuckDB 2.0:**
-
 ```sql
-SET allow_extension_repositories = 'allowed';
-CREATE EXTENSION REPOSITORY IF NOT EXISTS query_farm WITH PREFIX 'https://duckdb-extensions.query.farm';
-INSTALL vgi FROM query_farm;
-LOAD vgi FROM query_farm;
-ATTACH 'pubsub' (TYPE vgi, LOCATION '/abs/path/to/vgi-pubsub/bin/vgi-pubsub-worker');
-```
-
-**Haybarn 2.0** (`uvx haybarn-cli`):
-
-```sql
-INSTALL vgi FROM community;
+INSTALL vgi FROM community;     -- Haybarn 2.0; on DuckDB 2.0 use the query_farm repository
 LOAD vgi;
-ATTACH 'pubsub' (TYPE vgi, LOCATION '/abs/path/to/vgi-pubsub/bin/vgi-pubsub-worker');
+ATTACH 'pubsub' (TYPE vgi, LOCATION 'github-auto://Query-farm/vgi-pubsub@v0.1.0');
+
+CREATE SECRET (TYPE gcp_pubsub, PROJECT_ID 'my-project',
+               SERVICE_ACCOUNT_JSON '{"type": "service_account", ...}');
+
+-- Subscriptions per topic: a topic with none drops every message.
+SELECT t.topic, count(s.name) AS subscriptions
+FROM pubsub.main.topics() t
+LEFT JOIN pubsub.main.subscriptions() s ON s.topic = t.name
+GROUP BY t.topic ORDER BY subscriptions, t.topic;
+
+-- Who is behind right now?
+SELECT subscription, undelivered_messages, oldest_unacked_age_seconds / 60 AS lag_minutes
+FROM pubsub.main.subscription_backlog()
+ORDER BY oldest_unacked_age_seconds DESC NULLS LAST;
 ```
 
-Now call the functions:
+The secret type is registered by the worker, so run `CREATE SECRET` after `ATTACH`.
 
-```sql
-SELECT pubsub.main.greet('Ada');                         -- Hi, Ada!
-SELECT pubsub.main.greet('Ada', 'formal');               -- Good day, Ada.
-SELECT * FROM pubsub.main.sequence_table(5, step := 2) ORDER BY n;
-```
+<details><summary>Other ways to run it</summary>
 
-`fetch_items` pages through a REST API. Try it against the public demo API (25 fixed items):
+- **DuckDB 2.0**:
+  `SET allow_extension_repositories = 'allowed'; CREATE EXTENSION REPOSITORY IF NOT EXISTS query_farm WITH PREFIX 'https://duckdb-extensions.query.farm'; INSTALL vgi FROM query_farm; LOAD vgi FROM query_farm;`
+  then attach as above.
+- **Docker** (HTTP): `docker run -p 8000:8000 ghcr.io/query-farm/vgi-pubsub:0.1.0`, then
+  `ATTACH 'pubsub' (TYPE vgi, LOCATION 'http://localhost:8000')`.
+- **Go**: `go install github.com/Query-farm/vgi-pubsub/cmd/vgi-pubsub-worker@v0.1.0`,
+  then attach the binary by absolute path.
+- **From source**: `make build` (Go 1.26+, pure Go, no cgo), then
+  `ATTACH 'pubsub' (TYPE vgi, LOCATION '/abs/path/to/bin/vgi-pubsub-worker')`.
 
-```sql
-SELECT category, count(*) AS items, round(avg(price), 2) AS avg_price
-FROM pubsub.main.fetch_items('https://vgi-starter-api.query-farm.services/v1')
-GROUP BY category ORDER BY category;
-```
-
-If an older cached extension misbehaves, refresh it with `FORCE INSTALL vgi FROM query_farm;`
-(DuckDB) or `FORCE INSTALL vgi FROM community;` (Haybarn).
-
-## Using it in a pipeline
-
-Worker functions compose with everything else in DuckDB:
-
-```sql
--- Materialize an API into a local table.
-CREATE TABLE items AS SELECT * FROM pubsub.main.fetch_items('https://vgi-starter-api.query-farm.services/v1');
-
--- Join it with local files.
-SELECT i.name, i.price, s.units
-FROM items i JOIN 'sales.parquet' s ON s.item_id = i.id;
-
--- Call a scalar per row of another table.
-SELECT customer, pubsub.main.greet(customer, 'formal') FROM read_csv('customers.csv');
-```
-
-## Project layout
-
-```
-cmd/vgi-pubsub-worker/  # main.go: the worker binary (flags -> serve.Main)
-internal/pubsub/
-  worker.go        # assembles the catalog; register new functions in NewWorker
-  meta.go          # catalog/schema metadata + helpers (objectTags, column)
-  greet.go         # scalar example (overloads, constant arg with choices)
-  sequence.go      # table function example (named args, streaming state)
-  fetch_items.go   # REST API table function (pagination, retries, secrets)
-  version.go       # the worker version (checked against release tags)
-  *_test.go        # go test unit tests
-internal/serve/    # --http / --unix / stdio and logging flags, shared with recipes
-test/sql/          # sqllogictest files run through DuckDB
-test/mock_api/     # offline mock of the REST API used by tests
-examples/          # recipes (one package main, served by bin/recipes <name>)
-ci/                # integration harness used by `make test-sql` and CI
-scripts/           # vgi_template.py (init / template-diff)
-vgi-agent-tests.yaml  # private graders for the agent test tasks
-```
-
-## Adding a function
-
-1. Create `internal/pubsub/<name>.go`. Copy the closest example: `greet.go` for a
-   scalar, `sequence.go` for a generator, `fetch_items.go` for an API.
-2. Declare arguments as a struct with `vgi:"..."` tags. Use `pos=N` for positional
-   arguments and `default=V` (no `pos`) for named ones; add `ge=`, `le=`, `pattern=` or
-   `choices='a,b'` constraints. Scalar column arguments are `*array.String` (etc.) fields
-   with `const=false`. `doc=` must be the last key in the tag.
-3. Implement `Name()`, `Metadata()` (with `Description`, `Tags: withExamples(objectTags(...), examples)`
-   and `Examples`), then `OnBindTyped`/`ProcessTyped` (scalar, wrap with
-   `vgi.AsScalarFunction[Args]`) or `ArgumentSpecs`/`OnBind`/`NewState`/`Process` (table,
-   wrap with `vgi.AsTableFunction[State]`).
-4. Register it in `NewWorker` in `internal/pubsub/worker.go`, and add its examples to
-   `allExamples`.
-
-**Which kind of function?**
-
-| You want to… | Use |
-|---|---|
-| compute one value per input row | a **scalar** function |
-| return a set of rows from arguments (an API, a file, a generator) | a **table** function |
-| transform or aggregate the rows of a query | a **table in-out** function or an **aggregate** |
-| expose a fixed dataset by name (`SELECT * FROM pubsub.main.t`) | a **catalog table** |
-| write data out to a file or service | `COPY … TO` with a copy function |
-| accept `INSERT` / `UPDATE` / `DELETE` | a catalog table with insert/update/delete functions |
-
-The [examples/](examples/) folder has a recipe for most of these. Writable tables have no
-recipe:
-
-A writable table is a `vgi.CatalogTable` that names a table in-out function per operation in
-`InsertFunction`, `UpdateFunction` and `DeleteFunction`, with the richest result each one
-produces in `WriteResultModes`. A write function declares `vgi.WriteOptionsArgSpec()`, reads
-the requested mode with `vgi.ParseWriteOptions`, and binds and emits
-`vgi.WriteResultSchema` / `vgi.WriteResultBatch`. UPDATE and DELETE need a `vgi.RowIDField`
-column emitted by a scan that declares projection pushdown. Transactions:
-`vgi.WithSupportsTransactions` (or `AttachDecision.SupportsTransactions` per ATTACH) and
-`vgi.WithTransactionHooks`. Since VGI protocol 3.3 a table's scan and write functions are
-table-only: hidden from `duckdb_functions()` and not callable from SQL. Set `ExposeScan: true`
-on the table to keep the scan callable as an ordinary table function too (write functions never
-are). The write helpers and transaction hooks need vgi-go v0.42.0 or newer: if `go.mod` has an
-older v0.42.x, run `go get github.com/Query-farm/vgi-go@v0.42` (the newest v0.42.x; every
-v0.42.x speaks the same protocol). See
-[Writable catalog tables](https://github.com/Query-farm/vgi-go#writable-catalog-tables) and
-[`examples/writable_tx`](https://github.com/Query-farm/vgi-go/tree/main/examples/writable_tx).
+v0.1.0 is not published yet. Until it is, build from source.
+</details>
 
 ## Secrets and configuration
 
-`fetch_items` shows the recommended pattern. A bearer token comes from a DuckDB secret
-when one exists, and from an environment variable otherwise:
+Every API function reads a DuckDB secret of type `gcp_pubsub`:
+
+| Field | Meaning |
+|---|---|
+| `PROJECT_ID` | Default project. Every function also takes `project := '...'`. With a service-account key it defaults to the key's `project_id`. |
+| `SERVICE_ACCOUNT_JSON` | The key file contents. The worker signs a JWT and exchanges it at the key's `token_uri` for an access token (scopes: `pubsub`, `monitoring.read`), cached in memory for its lifetime. Redacted. |
+| `ACCESS_TOKEN` | An OAuth 2.0 access token, e.g. `gcloud auth print-access-token` (expires after about an hour). Redacted. |
+| `ENDPOINT` | Pub/Sub API root, default `https://pubsub.googleapis.com`. For the **emulator** give its `host:port` (the `PUBSUB_EMULATOR_HOST` value) or `http://host:port`; then no credentials are needed. |
+| `MONITORING_ENDPOINT` | Cloud Monitoring API root, default `https://monitoring.googleapis.com`. |
+| `QUOTA_PROJECT_ID` | Sent as `x-goog-user-project` (some user credentials need a quota project). |
 
 ```sql
-CREATE SECRET (TYPE pubsub_api, TOKEN 'your-token');      -- per session, never logged
+-- A service account (roles/pubsub.viewer + roles/monitoring.viewer is enough for everything but read_messages)
+CREATE SECRET prod (TYPE gcp_pubsub, SERVICE_ACCOUNT_JSON '...');
+-- A short-lived user token
+CREATE SECRET me (TYPE gcp_pubsub, PROJECT_ID 'my-project', ACCESS_TOKEN 'ya29....');
+-- The emulator
+CREATE SECRET emu (TYPE gcp_pubsub, PROJECT_ID 'my-project', ENDPOINT 'localhost:8085');
+
+SELECT * FROM pubsub.main.access_check(secret_name := 'prod');
 ```
 
-```bash
-PUBSUB_API_TOKEN=your-token make run-http                # for servers and containers
-```
-
-Try it: the demo API's `/v1/auth` endpoint needs the published token `demo-token`.
+**Application Default Credentials are never used implicitly.** The worker does not read
+`GOOGLE_APPLICATION_CREDENTIALS`, gcloud's credentials or the metadata server unless you opt in
+on the ATTACH, and then only when the secret has no `SERVICE_ACCOUNT_JSON` / `ACCESS_TOKEN`:
 
 ```sql
-SELECT count(*) FROM pubsub.main.fetch_items('https://vgi-starter-api.query-farm.services/v1/auth');   -- fails: HTTP 401
-CREATE SECRET (TYPE pubsub_api, TOKEN 'demo-token');
-SELECT count(*) FROM pubsub.main.fetch_items('https://vgi-starter-api.query-farm.services/v1/auth');   -- 25
+ATTACH 'pubsub' (TYPE vgi, LOCATION '...', use_application_default_credentials true);
+CREATE SECRET (TYPE gcp_pubsub, PROJECT_ID 'my-project');
 ```
 
-Never bake credentials into the image or the source. If a function can't run without
-real credentials, its examples can't execute in CI either. Set `execute: false` on the
-metadata check for that worker (see `.github/workflows/ci.yml`), and add
-`LINT_ARGS ?= --no-execute` to the Makefile so local runs match.
+With several secrets, pick one per call with `secret_name := '...'`. Credentials never enter
+table-function state or logs. 429 and 5xx responses are retried with exponential backoff,
+honouring `Retry-After`; other errors carry the HTTP status and Google's canonical status
+(`PERMISSION_DENIED`, `NOT_FOUND`, ...). Run `access_check()` to see which capabilities the
+credential has.
 
-## Testing
+## What's inside
 
-```bash
-make test-unit                 # fast Go unit tests
-make test-sql                  # test/sql/*.test through DuckDB (stdio)
-make test-sql TRANSPORT=http   # …over HTTP (also: launch)
-make check                     # everything CI runs
-```
+All objects are in `pubsub.main`. Every table function takes `project :=` and `secret_name :=`.
+Resource arguments accept an id (`'orders'`) or a full name (`'projects/p/topics/orders'`).
 
-`test/sql/*.test` files are [sqllogictest](https://duckdb.org/docs/stable/dev/sqllogictest/intro)
-scripts. `ci/run-integration.sh` runs them against your worker and fails on any
-unexpected skip, so a broken transport can't hide behind a green run.
-`fetch_items` is tested against `test/mock_api/server.py` so tests are fast and
-offline.
+| Function | What it returns |
+|---|---|
+| `topics(topic := …, page_size := 100)` | One row per topic: `labels`, `message_retention_seconds`, schema settings, `kms_key_name`, `allowed_persistence_regions`, `ingestion_source` / `ingestion_settings` (import topics), `message_transforms`, `state`. |
+| `subscriptions(topic := …, subscription := …)` | `type` (`pull`/`push`/`bigquery`/`cloud_storage`), `ack_deadline_seconds`, retention, `filter`, `labels`, `expiration_ttl_seconds`, `dead_letter_topic`, `max_delivery_attempts`, retry backoff, exactly-once, ordering, `detached`, `push_endpoint_host`, `push_oidc_service_account`, `bigquery_table`, `cloud_storage_bucket`, `export_state`. |
+| `snapshots(topic := …)` | Snapshot, topic, `expire_time`, labels. |
+| `schemas()` | Latest revision of every schema with its `definition` (Avro JSON or `.proto`). |
+| `schema_revisions(schema)` | Every revision of one schema. |
+| `iam_policies(resource_type := 'all', resource := …)` | One row per (resource, role, member), with `member_type`, IAM condition, `policy_version`, `etag`, `error`. |
+| `time_series(metric, start_time, end_time, subscription := …, topic := …, filter := …, alignment_seconds := 60, aligner := 'auto', reducer := …, group_by := …)` | Cloud Monitoring points as long rows: `metric`, `resource_type`, `topic`, `subscription`, `labels`, `ts`, `start_ts`, `value`, `metric_kind`, `value_type`, `unit`. |
+| `subscription_backlog(lookback_minutes := 10, subscription := …, end_time := …)` | Latest `undelivered_messages` and `oldest_unacked_age_seconds` per subscription. |
+| `read_messages(topic, allow_temporary_subscription := true, start_time := …, end_time := …, snapshot := …, filter := …, max_messages := 100)` | Retained messages (see below). |
+| `access_check()` | One row per capability: may the credential list topics / subscriptions / snapshots / schemas, read IAM, attach subscriptions, read metrics. |
+| `resource_id(name)`, `resource_project(name)`, `duration_seconds(text)` | Offline scalars: the id or project of a resource name, and seconds in a `'604800s'` duration. |
 
-**Testing against real data:** put live tests in their own `.test` file that starts with
-`require-env PUBSUB_LIVE`. They run only when that variable is set. Add the skip reason
-to `EXPECTED_SKIP_REASONS` in CI.
+Durations are `DOUBLE` seconds, times `TIMESTAMPTZ`, labels and attributes `MAP(VARCHAR, VARCHAR)`
+(read one with `labels['team']`; an absent key is `NULL`). Name columns hold full resource names,
+so join `subscriptions.topic = topics.name`; Monitoring rows carry ids, so join
+`time_series.subscription = subscriptions.subscription`.
 
-## Metadata and the quality score
+### What pushes down
 
-DuckDB, agents and documentation tools discover your functions through their metadata:
-titles, descriptions, argument docs, examples and keywords.
-[vgi-lint](https://github.com/Query-farm/vgi-lint-check) checks it, and CI runs it on
-every push. Its settings live in `vgi-lint.toml`, which `make lint-explain`,
-`vgi-lint lint`, and CI all read. This template scores 100/100 with no findings.
+| SQL | Becomes |
+|---|---|
+| `topic :=`, `subscription :=` on `topics` / `subscriptions` | one `GET` of that resource instead of a listing |
+| `topic :=` on `subscriptions` / `snapshots` | the topic's own `…/subscriptions` / `…/snapshots` listing |
+| `resource_type :=`, `resource :=` on `iam_policies` | which listings are walked / a single `getIamPolicy` |
+| `metric`, `subscription :=`, `topic :=`, `filter :=` on `time_series` | the Monitoring `filter` (`metric.type`, `resource.labels.subscription_id`, ...) |
+| `start_time` / `end_time` | the Monitoring `interval` |
+| `alignment_seconds`, `aligner`, `reducer`, `group_by` | server-side `aggregation.*` |
+| `filter :=` on `read_messages` | the temporary subscription's filter (attributes only) |
+| `start_time :=` / `snapshot :=` on `read_messages` | the seek target |
 
-```bash
-make lint-explain                              # findings, each with its fix
-make lint-explain LINT_ARGS="--format agent"   # the same, grouped for coding agents
-make lint-ai                                   # optional: an agent must solve vgi-agent-tests.yaml
-```
+SQL `WHERE` clauses are not translated: the list APIs have no server-side filters, so use the
+named arguments above for selective calls and `WHERE` for everything else. Listings are paged
+lazily with the API's `pageToken`, kept in the scan state so long scans resume across the HTTP
+transport.
 
-Each report also states an **assurance level**: how much was actually verified.
+## Reading messages, and why it is opt-in
 
-| Level | Reached when | Here |
-|---|---|---|
-| L1 structural | the static metadata is clean | workers that need real credentials (`execute: false` in CI) |
-| L2 behavioural | the examples also run and return what they claim | **the CI gate** |
-| L3 semantic | an agent solves the worker's own test tasks, and the docs are reviewed | `make lint-ai`, before publishing |
+Pub/Sub has **no non-destructive peek**. Pulling from an existing subscription leases its
+messages: the real subscribers cannot get them until the ack deadline passes, every pull counts
+as a delivery attempt toward the dead-letter policy, and acknowledging them would lose them for
+good. `read_messages` therefore **never pulls from, seeks or changes an existing subscription**.
 
-- **How strict.** Your copy fails on warnings (`fail_on = "warning"` in `vgi-lint.toml`).
-  Raise it to `"info"` before you publish the worker for others.
-- **The linter isn't pinned.** It tracks the current quality bar, so a new rule can flag
-  metadata that passed yesterday. Fix it, or waive the finding.
-- **Waivers.** If a finding is genuinely wrong for your worker, waive it in
-  `vgi-lint.toml` with a `kind` and a `reason`.
-- **Existing workers.** If you're adding this gate to a worker that already has
-  findings, record them with `vgi-lint lint --baseline vgi-lint-baseline --update-baseline`
-  and set `baseline` in `vgi-lint.toml`. After that, only new findings fail.
+With `allow_temporary_subscription := true` (required; without it the call fails before doing
+anything) it:
 
-Metadata lives in `internal/pubsub/meta.go` and each function's `Metadata()`.
+1. creates a new subscription on the topic named `vgi-temp-<UTC time>-<random>`, labelled
+   `vgi-temp=true` and `created-by=vgi-pubsub`, with a 24-hour `expiration_policy` (the minimum
+   Pub/Sub allows) and 10-minute message retention, so a leak cleans itself up;
+2. seeks it to `start_time` (default: now minus the topic's retention, i.e. the oldest retained
+   message) or to `snapshot :=`;
+3. pulls up to `max_messages` (at most `wait_seconds`), acknowledging them **on the temporary
+   subscription only** (each subscription has its own copy of every message);
+4. deletes the temporary subscription, also when any step fails. If the delete itself fails the
+   query fails and names the subscription to remove.
 
-## Logging and debugging
+All four steps happen inside one call, so the temporary subscription never outlives the query,
+even over the HTTP transport. A create that collides (`ALREADY_EXISTS`) stops before any pull.
 
-stdout carries the Arrow protocol, so **never print to stdout**. Log to stderr instead.
-Use `log/slog` (the SDK configures it to write to stderr); `--debug` or `--log-level debug` turns it up.
-
-- Under DuckDB (stdio/launch), worker stderr shows up in DuckDB's error messages and
-  terminal.
-- In Docker it goes to `docker logs`.
-- `make debug` runs one query against the worker with debug logging on.
-
-## Deploying
-
-The same binary serves stdio (DuckDB starts it locally) or HTTP (you host it):
-
-```bash
-docker build -t weather-worker .
-docker run -p 8000:8000 -e PUBSUB_API_TOKEN=... weather-worker   # health: GET /health
-```
+What remains: a subscription is created and deleted (audit log entries; needs
+`pubsub.subscriptions.create` / `delete` and `pubsub.topics.attachSubscription`), the replayed
+messages are billed as delivery, and **only retained messages can be read**: the topic must have
+message retention (`message_retention_seconds` in `topics()`), or you read a snapshot. A new
+subscription cannot see anything published before it otherwise.
 
 ```sql
-ATTACH 'pubsub' (TYPE vgi, LOCATION 'https://workers.example.com/pubsub');
+SELECT timestamp, key, headers['tenant'] AS tenant, payload_text::JSON->>'order_id' AS order_id
+FROM pubsub.main.read_messages('orders', allow_temporary_subscription := true,
+                               start_time := now() - INTERVAL 1 HOUR,
+                               filter := 'attributes.tenant = "a"')
+ORDER BY timestamp;
 ```
 
-Put hosted workers behind TLS and authentication. See
-[authentication](https://query.farm/vgi/authentication) for bearer tokens and JWTs, and
-[distributing a worker](https://query.farm/vgi/distributing-a-worker) for packaging.
-Pass secrets with `-e` or your platform's secret manager.
+### Messaging vocabulary
 
-## Releasing
+`read_messages` uses the column names shared by the VGI messaging workers
+([vgi-rabbitmq](https://github.com/Query-farm/vgi-rabbitmq), [vgi-nats](https://github.com/Query-farm/vgi-nats)),
+so their results `UNION ALL`:
 
-Push a tag like `v0.1.0`. The release workflow builds signed binaries for linux (amd64, arm64), macOS (arm64) and Windows (amd64) as static pure-Go binaries, and attaches them to the GitHub release. Users download the archive for their platform and point `LOCATION` at the binary inside. Go developers can also `go install github.com/Query-farm/vgi-pubsub/cmd/vgi-pubsub-worker@v0.1.0`. Every artifact is signed with cosign and
-carries SLSA build provenance. `ci/check-version.sh` makes sure the tag matches the
-version in `internal/pubsub/version.go`.
+| Shared column | Pub/Sub meaning |
+|---|---|
+| `sequence BIGINT` | always `NULL`: Pub/Sub has no offsets (use `timestamp`, `message_id`) |
+| `timestamp TIMESTAMPTZ` | publish time |
+| `key VARCHAR` | ordering key (`NULL` when none) |
+| `payload BLOB`, `payload_text VARCHAR`, `payload_bytes BIGINT` | data; text when valid UTF-8; full size before `truncate` |
+| `headers MAP(VARCHAR, VARCHAR)` | message attributes |
 
-## Using with coding agents
+Pub/Sub-specific columns follow: `message_id`, `delivery_attempt`, plus `project`, `topic` and
+the temporary `subscription`. Consumer lag is `subscription_backlog().undelivered_messages`
+(messages) and `oldest_unacked_age_seconds` (time). (The two sibling workers were being built at
+the same time; this table was aligned with vgi-rabbitmq's message columns, whose README section
+was not written yet.)
 
-[AGENTS.md](AGENTS.md) is written for AI coding agents (Claude Code reads it via
-`CLAUDE.md`; Codex, Cursor and others read it directly). It covers the commands, the
-recipe for adding a function, the metadata checklist and the sharp edges. A good first
-prompt:
+## Examples
 
-> Read AGENTS.md. Replace `fetch_items` with `forecast(lat DOUBLE, lon DOUBLE)` that calls
-> the Open-Meteo API. Include full metadata, a mock-server test and a `PUBSUB_LIVE` test.
-> You're done when `make check` passes.
+```sql
+-- Subscriptions with no dead-letter policy on topics that carry payments
+SELECT subscription, topic FROM pubsub.main.subscriptions()
+WHERE dead_letter_topic IS NULL AND topic LIKE '%payments%';
 
-## Keeping up with the template
+-- Public IAM grants anywhere
+SELECT resource_type, resource, role, member FROM pubsub.main.iam_policies()
+WHERE member IN ('allUsers', 'allAuthenticatedUsers');
 
-`make template-diff` shows what changed upstream (CI, docs, examples) since your copy was
-made. Your copy records its template version in `.vgi-pubsub.json`.
+-- Peak backlog per subscription over a day
+SELECT subscription, max(value) AS peak
+FROM pubsub.main.time_series('subscription/num_undelivered_messages',
+                             start_time := TIMESTAMPTZ '2026-01-01 00:00:00+00',
+                             end_time   := TIMESTAMPTZ '2026-01-02 00:00:00+00')
+GROUP BY subscription ORDER BY peak DESC;
 
-## Learn more
+-- Topics whose schema allows a revision range
+SELECT t.topic, s.revision_id, s.revision_create_time
+FROM pubsub.main.topics() t JOIN pubsub.main.schema_revisions('order-avro') s ON s.name = t.schema;
+```
 
-- [What is VGI?](https://query.farm/vgi) · [Getting started](https://query.farm/vgi/getting-started) · [Building a worker](https://query.farm/vgi/building-a-worker)
-- [Go SDK docs](https://query.farm/vgi/docs/go/): [scalar tutorial](https://query.farm/vgi/docs/go/tutorial/scalar/), [table tutorial](https://query.farm/vgi/docs/go/tutorial/table/)
-- [Distributing a worker](https://query.farm/vgi/distributing-a-worker) · [Choosing a language](https://query.farm/vgi/languages) · [llms.txt](https://query.farm/vgi/llms.txt)
-- SDK source: [vgi-go](https://github.com/Query-farm/vgi-go) · RPC layer: [https://vgi-rpc-go.query.farm](https://vgi-rpc-go.query.farm)
+## How it is tested
+
+`make check` runs gofmt, go vet, golangci-lint, `go test`, the SQL suite (`test/sql/pubsub.test`,
+77 statements) over the stdio, launch and HTTP transports, and vgi-lint at `fail_on = "info"`
+(score 100).
+
+**The SQL suite needs no Docker and no credentials.** It talks to `test/fixture_server/server.py`,
+which replays:
+
+- **Recorded responses from the real Pub/Sub emulator** (`recorded.json`, project `vgi-test`):
+  topics with and without retention, a schema with two revisions and a topic using it,
+  subscriptions with filter / ordering / dead-letter / retry / exactly-once settings, a snapshot,
+  five messages with attributes, ordering keys and a non-UTF-8 payload, and complete
+  `read_messages` flows (create, seek, pull, acknowledge, delete of the temporary subscription).
+  Temporary-subscription names are normalized and each request is keyed by the chain of requests
+  before it.
+- **Hand-written, documented REST shapes** (`handwritten.json`, generated by `make_handwritten.py`,
+  project `prod-shop`) for what the emulator does not implement: IAM policies (with a condition,
+  a public grant and a `PERMISSION_DENIED`), Cloud Monitoring time series (paged, reduced, delta
+  and distribution metrics), Protocol Buffer schemas, push / BigQuery / Cloud Storage
+  subscriptions, an import topic, a CMEK topic, 401/403 errors, and an OAuth token endpoint that
+  the service-account key path exchanges its signed JWT at (a throwaway RSA key is generated per
+  run, never committed).
+
+The runner starts two copies: one answers every request with `429 + Retry-After: 0` once (so
+retries are always exercised), the other demands a bearer token. Point the worker at either
+through the secret's `ENDPOINT` / `MONITORING_ENDPOINT`; there are no test-only code paths.
+
+**Against the live emulator** (also a CI job): `test/fixture/run-emulator.sh start` runs
+`gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators` (about 380 MB compressed, ~150-300 MB
+RAM, capped at 1 GB) on `127.0.0.1:18085` and seeds it; `make test-emulator` then runs the suite
+with every `vgi-test` request sent to it. `make record-fixtures` re-records `recorded.json` from a
+fresh emulator. The emulator speaks REST on the same port as gRPC, which is why this worker uses
+the REST APIs rather than the gRPC client libraries: the same client code runs against Google,
+the emulator and the replay fixtures. It has no IAM, Monitoring, Protocol Buffer schemas or
+snapshot labels, which is what the hand-written fixtures cover. GitHub service containers cannot
+set the emulator's start command, so the CI job runs it with `docker run`.
+
+## Known limitations
+
+- `WHERE` filters are not pushed into the APIs (they have none for listings); use the named
+  arguments. Monitoring filters on arbitrary labels go in `filter :=`.
+- `read_messages` only sees retained messages (topic retention or a snapshot), is capped at
+  10,000 messages per call, and orders rows by publish time. Pub/Sub may deliver duplicates; they
+  are dropped by `message_id`.
+- `iam_policies` reads resource-level policies only; inherited project / folder / organization
+  grants are not included.
+- No Pub/Sub Lite (deprecated), no regional endpoints beyond what `ENDPOINT` allows, no
+  workload-identity federation config files (use an access token or ADC opt-in).
+
+## Development
+
+See [AGENTS.md](AGENTS.md) for the layout, the recipe for adding a function and the sharp edges.
+`make help` lists the targets; `make template-diff` shows upstream starter changes (this worker
+started from vgi-starter-go v1.3.0).
 
 ## Support
 
 Open an issue on this repository. For VGI itself, see [query.farm](https://query.farm).
 
-## Authorship & license
+## Authorship & License
 
-The starter template is written by [Query.Farm](https://query.farm) and released under
-the [BSD Zero Clause License](LICENSE) (0BSD). Use it for anything, with no attribution
-required. Replace this section with your own license once the code is yours.
+Copyright 2026 Query Farm LLC - https://query.farm
+
+Released under the [BSD Zero Clause License](LICENSE) (0BSD). Google Cloud and Pub/Sub are
+trademarks of Google LLC; this worker is not affiliated with or endorsed by Google.

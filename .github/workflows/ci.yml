@@ -79,6 +79,29 @@ jobs:
           export RECIPES_WORKER="$PWD/bin/recipes$exe"
           TRANSPORT=${{ matrix.transport }} PYTHON="uv run --no-project python" ci/run-integration.sh
 
+  emulator:
+    # The SQL suite against a live Pub/Sub emulator (no replay for project vgi-test).
+    # Not a service container: the emulator image needs a command
+    # (`gcloud beta emulators pubsub start`), which services cannot set.
+    name: SQL tests (live Pub/Sub emulator)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+      - name: Start and seed the emulator
+        run: test/fixture/run-emulator.sh start
+      - name: Run test/sql against it
+        run: make test-emulator
+      - name: Stop the emulator
+        if: always()
+        run: test/fixture/run-emulator.sh stop
+
   metadata:
     name: Metadata quality (vgi-lint)
     runs-on: ubuntu-latest
@@ -96,8 +119,11 @@ jobs:
           location: ${{ github.workspace }}/bin/vgi-pubsub-worker
           # Set in vgi-lint.toml, so local runs and CI agree.
           fail-on: ${{ steps.lintcfg.outputs.fail_on }}
-          # Set to false if your examples need real credentials or network access.
-          execute: true
+          # false: every table function needs a gcp_pubsub secret (Google credentials, or the
+          # fixture/emulator ENDPOINT) to run its examples, e.g. pubsub.main.topics() and
+          # pubsub.main.time_series() need a project and roles/pubsub.viewer / monitoring.viewer.
+          # The SQL suite above runs them against the replay fixtures and the emulator job below.
+          execute: "false"
 
   docker:
     name: Docker image smoke test

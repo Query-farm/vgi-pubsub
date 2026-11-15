@@ -20,7 +20,7 @@ FROM debian:bookworm-slim
 ARG VERSION=0.0.0
 ARG GIT_COMMIT=unknown
 LABEL org.opencontainers.image.title="vgi-pubsub-worker" \
-      org.opencontainers.image.description="A VGI worker for DuckDB" \
+      org.opencontainers.image.description="Google Cloud Pub/Sub as SQL: a VGI worker for DuckDB" \
       org.opencontainers.image.source="https://github.com/Query-farm/vgi-pubsub" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${GIT_COMMIT}" \

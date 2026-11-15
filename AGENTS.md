@@ -24,15 +24,22 @@ Faster loops while iterating: `make test-unit`, `make test-sql`, `make lint-expl
 cmd/vgi-pubsub-worker/  # main.go: the worker binary (flags -> serve.Main)
 internal/pubsub/
   worker.go        # assembles the catalog; register new functions in NewWorker
-  meta.go          # catalog/schema metadata + helpers (objectTags, column)
-  greet.go         # scalar example (overloads, constant arg with choices)
-  sequence.go      # table function example (named args, streaming state)
-  fetch_items.go   # REST API table function (pagination, retries, secrets)
+  meta.go          # catalog/schema metadata, categories, agent tasks + helpers
+  client.go        # gcp_pubsub secret -> connection (SA JWT / token / emulator / ADC opt-in), REST calls with retries
+  table.go         # shared paged list-function shape (state, cursor, Arrow building)
+  names.go         # resource names, durations, push host, IAM member types
+  resources.go     # topics, subscriptions, snapshots, schemas, schema_revisions
+  iam.go           # iam_policies (getIamPolicy, flattened)
+  monitoring.go    # time_series, subscription_backlog (Cloud Monitoring)
+  messages.go      # read_messages: the opt-in temporary-subscription read (read its header first)
+  access.go        # access_check
+  tools.go         # offline scalars with the executable examples
   version.go       # the worker version (checked against release tags)
   *_test.go        # go test unit tests
 internal/serve/    # --http / --unix / stdio and logging flags, shared with recipes
 test/sql/          # sqllogictest files run through DuckDB
-test/mock_api/     # offline mock of the REST API used by tests
+test/fixture_server/  # replay server: recorded.json (live emulator) + handwritten.json (IAM, Monitoring, ...)
+test/fixture/      # run-emulator.sh: start/seed/stop the Pub/Sub emulator used to record
 examples/          # recipes (one package main, served by bin/recipes <name>)
 ci/                # integration harness used by `make test-sql` and CI
 scripts/           # vgi_template.py (init / template-diff)
@@ -41,8 +48,8 @@ vgi-agent-tests.yaml  # private graders for the agent test tasks
 
 ## Recipe: add a function
 
-1. Create `internal/pubsub/<name>.go`. Copy the closest example: `greet.go` for a
-   scalar, `sequence.go` for a generator, `fetch_items.go` for an API.
+1. Create `internal/pubsub/<name>.go`. Copy the closest example: `tools.go` for a
+   scalar, `resources.go` (a `listFunc`) for a paged API listing.
 2. Declare arguments as a struct with `vgi:"..."` tags. Use `pos=N` for positional
    arguments and `default=V` (no `pos`) for named ones; add `ge=`, `le=`, `pattern=` or
    `choices='a,b'` constraints. Scalar column arguments are `*array.String` (etc.) fields
@@ -124,6 +131,13 @@ v0.42.x speaks the same protocol). See
 
 ## Sharp edges (read before writing code)
 
+- **Read-only, with one opt-in exception.** Only `read_messages` creates anything (a temporary
+  subscription, deleted in the same call). Never add a function that pulls from, seeks, acks on or
+  modifies an existing subscription: Pub/Sub has no read-only peek, so that would steal or delay
+  other consumers' messages.
+- **Fixtures.** New emulator-backed tests: `test/fixture/run-emulator.sh start`, then
+  `PUBSUB_RECORD_UPSTREAM=http://127.0.0.1:18085 make test-sql` (or `make record-fixtures` from
+  scratch). Shapes the emulator lacks go in `test/fixture_server/make_handwritten.py`.
 - **Never write to stdout.** stdout is the Arrow protocol channel, and one stray print
   corrupts the stream. Log to stderr. Use `log/slog` (the SDK configures it to write to stderr); `--debug` or `--log-level debug` turns it up.
 - **Scalars have no named arguments.** For an optional scalar argument, add an overload
@@ -140,8 +154,9 @@ v0.42.x speaks the same protocol). See
 - **State must be serializable.** Table-function state (the `S` in `TypedTableFunc[S]`) is gob-encoded into the HTTP continuation token between batches, because each batch can be served by a different request or process. Keep the cursor in *exported* fields (gob silently drops unexported ones, so the scan would restart from row 0), keep it small, and never put secrets in it.
 - **Examples must be deterministic.** Add `ORDER BY`, and no `now()`, random values or
   network. Examples that hit a live API go in `examples`, not `executable_examples`.
-- **Credentials.** Read them from a DuckDB secret first (`CREATE SECRET (TYPE pubsub_api, …)`),
-  then from an environment variable. Never put them in logs, examples or the repo, and
+- **Credentials.** Read them only from the `gcp_pubsub` DuckDB secret (never environment
+  variables; Application Default Credentials only behind the `use_application_default_credentials`
+  ATTACH opt-in). Never put them in logs, examples or the repo, and
   keep them out of table-function state unless the state rule above says
   the SDK encrypts it. Workers that need real credentials set `execute: false` on the metadata check.
 - **Errors.** Raise errors with a clear message. For HTTP failures, include the status
@@ -188,7 +203,7 @@ v0.42.x speaks the same protocol). See
 ## Useful prompts
 
 - "Add a scalar `slugify(text VARCHAR) -> VARCHAR` with full metadata and tests."
-- "Replace `fetch_items` with a table function for <API>. Map its JSON to typed columns,
-  read the token from a `pubsub_api` secret, and add mock-server tests."
+- "Add a `topic_snapshots_backlog` function, record its emulator responses with
+  `make record-fixtures`, and add SQL tests."
 - "Add a catalog table `countries` (code, name) with a primary key, following
   `examples/catalog_tables`."

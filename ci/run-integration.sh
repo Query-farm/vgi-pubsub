@@ -15,6 +15,7 @@
 #   HAYBARN_UNITTEST  path to haybarn-unittest   (default: the one on PATH)
 #   PYTHON            command for the fixture server, may contain spaces (default: python3)
 #   PUBSUB_RECORD_UPSTREAM  live Pub/Sub emulator URL: record unrecorded responses
+#   PUBSUB_LIVE_UPSTREAM    live Pub/Sub emulator URL: run the emulator tests against it (no replay)
 #   MIN_EXECUTED      fail if fewer test cases ran (default: 1)
 #   EXPECTED_SKIP_REASONS  newline-separated skip reasons that are allowed,
 #                     e.g. "require-env PUBSUB_LIVE". Any other skip fails.
@@ -80,9 +81,12 @@ start_server() {
 # serves the OAuth token endpoint a service-account key exchanges its JWT at.
 # With PUBSUB_RECORD_UPSTREAM set (a live emulator, test/fixture/run-emulator.sh)
 # unrecorded /v1 requests are forwarded there and saved.
+# PUBSUB_LIVE_UPSTREAM instead sends every emulator-project request to that
+# live emulator without saving anything (the CI emulator job).
 REC=()
 [ -n "${PUBSUB_RECORD_UPSTREAM:-}" ] && REC=(--record "$PUBSUB_RECORD_UPSTREAM")
-FIXTURE_FLAKY="$([ -n "${PUBSUB_RECORD_UPSTREAM:-}" ] && echo 0 || echo 1)" \
+[ -n "${PUBSUB_LIVE_UPSTREAM:-}" ] && REC=(--live "$PUBSUB_LIVE_UPSTREAM")
+FIXTURE_FLAKY="$([ ${#REC[@]} -gt 0 ] && echo 0 || echo 1)" \
   start_server "$STAGE/fixture.log" $PYTHON "$REPO/test/fixture_server/server.py" ${REC[@]+"${REC[@]}"}
 export PUBSUB_FIXTURE_URL="http://127.0.0.1:$PORT"
 FIXTURE_REQUIRE_AUTH=1 start_server "$STAGE/fixture-auth.log" $PYTHON "$REPO/test/fixture_server/server.py" ${REC[@]+"${REC[@]}"}

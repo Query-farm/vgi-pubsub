@@ -2,6 +2,7 @@
 
     python3 test/fixture_server/server.py                          # replay
     python3 test/fixture_server/server.py --record http://127.0.0.1:18085
+    python3 test/fixture_server/server.py --live http://127.0.0.1:18085   # no replay for vgi-test
 
 Prints ``PORT:<n>`` on stdout once listening (ci/run-integration.sh waits for
 it).
@@ -35,7 +36,6 @@ Environment:
                            token the fake /token endpoint issues): 401 otherwise
 """
 
-import fcntl
 import hashlib
 import json
 import os
@@ -45,6 +45,11 @@ import threading
 import urllib.error
 import urllib.parse
 import urllib.request
+
+try:
+    import fcntl  # only needed when recording (two servers write recorded.json)
+except ImportError:  # Windows: replay only
+    fcntl = None
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -52,8 +57,12 @@ RECORDED = os.path.join(HERE, "recorded.json")
 HANDWRITTEN = os.path.join(HERE, "handwritten.json")
 
 UPSTREAM = None
+LIVE = False
 if "--record" in sys.argv:
     UPSTREAM = sys.argv[sys.argv.index("--record") + 1].rstrip("/")
+if "--live" in sys.argv:  # forward every emulator-project request, save nothing
+    UPSTREAM = sys.argv[sys.argv.index("--live") + 1].rstrip("/")
+    LIVE = True
 
 LOCK = threading.Lock()
 TEMP = re.compile(r"vgi-temp-[a-z0-9-]+")
@@ -115,7 +124,8 @@ def save(key, entry):
     with LOCK:
         FIXTURES[key] = entry
         with open(RECORDED + ".lock", "w") as lk:
-            fcntl.flock(lk, fcntl.LOCK_EX)
+            if fcntl:
+                fcntl.flock(lk, fcntl.LOCK_EX)
             current = load(RECORDED)
             current[key] = entry
             tmp = RECORDED + ".tmp"
@@ -193,15 +203,16 @@ class Handler(BaseHTTPRequestHandler):
         # While recording, requests on a temporary subscription always go
         # upstream: the subscription must really exist there for the steps
         # that follow, even when an identical read was recorded before.
-        entry = None if (UPSTREAM and name) else (HAND.get(key) or FIXTURES.get(key))
+        emu = url.path.startswith("/v1/projects/vgi-test/")
+        entry = None if (UPSTREAM and name) or (LIVE and emu) else (HAND.get(key) or FIXTURES.get(key))
         if entry is None and url.path.startswith("/v3/"):
             alt = base_key(method, npath, strip_interval(url.query), body)
             entry = HAND.get(alt) or FIXTURES.get(alt)
         # Only the emulator's project is recorded; prod-shop and the other
         # hand-written projects must never be filled in from the emulator.
-        if entry is None and UPSTREAM and url.path.startswith("/v1/projects/vgi-test/"):
+        if entry is None and UPSTREAM and emu:
             entry = self.forward(method, raw)
-            if entry is not None:
+            if entry is not None and not LIVE:
                 save(key, entry)
         if entry is None:
             sys.stderr.write(f"fixture: no response for {key}\n")

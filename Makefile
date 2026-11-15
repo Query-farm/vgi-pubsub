@@ -18,7 +18,7 @@ TRANSPORT       ?= stdio
 export CGO_ENABLED ?= 0
 
 .DEFAULT_GOAL := help
-.PHONY: help build test test-unit test-sql test-sql-all lint lint-explain lint-ai fmt check run run-http debug tools template-diff clean
+.PHONY: help build test test-unit test-sql test-sql-all test-emulator record-fixtures lint lint-explain lint-ai fmt check run run-http debug tools template-diff clean
 
 help: ## List the targets
 	@awk 'BEGIN{FS=":.*## "} /^[a-zA-Z_-]+:.*## /{printf "  %-14s %s\n",$$1,$$2}' $(MAKEFILE_LIST)
@@ -55,6 +55,16 @@ test-sql-all: ## SQL tests over every transport
 	$(MAKE) test-sql TRANSPORT=http
 
 test: test-unit test-sql ## Unit + SQL tests
+
+EMULATOR_URL ?= http://127.0.0.1:18085
+test-emulator: build tools ## SQL tests against a live emulator (test/fixture/run-emulator.sh start first)
+	PUBSUB_LIVE_UPSTREAM=$(EMULATOR_URL) $(MAKE) --no-print-directory test-sql TRANSPORT=stdio
+
+record-fixtures: build tools ## Re-record test/fixture_server/recorded.json from a fresh emulator
+	test/fixture/run-emulator.sh start
+	rm -f test/fixture_server/recorded.json
+	PUBSUB_RECORD_UPSTREAM=$(EMULATOR_URL) $(MAKE) --no-print-directory test-sql TRANSPORT=stdio
+	test/fixture/run-emulator.sh stop
 
 lint-explain: build ## Metadata quality report (vgi-lint, settings in vgi-lint.toml). LINT_ARGS="--format agent" for agents
 	$(VGI_LINT) "$(WORKER)" $(LINT_ARGS)
