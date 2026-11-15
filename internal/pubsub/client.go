@@ -274,7 +274,8 @@ func validProject(p string) bool {
 		return false
 	}
 	for _, r := range p {
-		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' || r == '.' || r == ':' || r == '_') {
+		ok := r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' || r == '.' || r == ':' || r == '_'
+		if !ok {
 			return false
 		}
 	}

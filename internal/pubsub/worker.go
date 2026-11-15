@@ -21,7 +21,8 @@ import (
 // allExamples lists every function's examples for the schema-level tag.
 func allExamples() []exampleQuery {
 	return exampleQueries(topicsExamples, subscriptionsExamples, snapshotsExamples, schemasExamples, schemaRevisionsExamples,
-		iamExamples, timeSeriesExamples, backlogExamples, messagesExamples, accessExamples)
+		iamExamples, timeSeriesExamples, backlogExamples, messagesExamples, accessExamples,
+		resourceIDExamples, resourceProjectExamples, durationExamples)
 }
 
 // NewWorker builds the worker: one catalog, one main schema. Extra options
@@ -42,6 +43,9 @@ func NewWorker(opts ...vgi.WorkerOption) *vgi.Worker {
 	for _, f := range []vgi.TableFunction{newTopics(), newSubscriptions(), newSnapshots(), newSchemas(), newSchemaRevisions(),
 		newIAMPolicies(), newTimeSeries(), newSubscriptionBacklog(), newReadMessages(), newAccessCheck()} {
 		w.RegisterTable(f)
+	}
+	for _, f := range newTools() {
+		w.RegisterScalar(f)
 	}
 	return w
 }

@@ -61,6 +61,8 @@ topics = [
     {"name": f"{PP}/topics/audit"},
 ]
 put(key("GET", f"/v1/{PP}/topics", {"pageSize": "100"}), {"topics": topics})
+for t in topics:
+    put(key("GET", "/v1/" + t["name"]), t)
 
 subscriptions = [
     {"name": f"{PP}/subscriptions/payments-push", "topic": f"{PP}/topics/payments",

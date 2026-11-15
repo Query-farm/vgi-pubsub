@@ -108,11 +108,11 @@ const messagesWarning = "Pub/Sub has no read-only peek: pulling from an existing
 	"subscription (vgi-temp-<time>-<random>, label vgi-temp=true, 24 h expiration), seeks it to start_time or a snapshot, pulls and " +
 	"acks on it only, and deletes it at the end (also on error). That needs pubsub.subscriptions.create/delete and " +
 	"pubsub.topics.attachSubscription, is visible in audit logs, and only replays what the topic retains (topic message retention) " +
-	"or the snapshot captured."
+	"or the snapshot captured"
 
 func checkOptIn(a messagesArgs) error {
 	if !a.AllowTemp {
-		return errors.New("read_messages needs allow_temporary_subscription := true. " + messagesWarning)
+		return errors.New("read_messages needs allow_temporary_subscription := true: " + messagesWarning)
 	}
 	if a.StartTime != nil && deref(a.Snapshot) != "" {
 		return errors.New("give start_time := or snapshot :=, not both")
@@ -309,7 +309,7 @@ func (*messagesFunc) Metadata() vgi.FunctionMetadata {
 		"Read a topic's retained messages through a TEMPORARY subscription — only with allow_temporary_subscription := true (required "+
 			"opt-in). Positional arg: topic. Named: allow_temporary_subscription, start_time (seek; default the oldest retained message), "+
 			"end_time, snapshot := (seek to a snapshot instead), filter := (Pub/Sub attribute filter, server-side), max_messages (default "+
-			"100), wait_seconds (default 10), truncate, project, secret_name. "+messagesWarning+" Columns (shared messaging vocabulary): "+
+			"100), wait_seconds (default 10), truncate, project, secret_name. "+messagesWarning+". Columns (shared messaging vocabulary): "+
 			"project, topic, subscription (the temporary one), sequence (always NULL), timestamp (publish time), key (ordering key), "+
 			"payload `BLOB`, payload_text, payload_bytes, headers `MAP` (attributes), message_id, delivery_attempt.",
 		"## read_messages(topic, allow_temporary_subscription := true, start_time := NULL, snapshot := NULL)\n\n"+

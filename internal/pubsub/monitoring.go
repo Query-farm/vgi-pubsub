@@ -131,7 +131,7 @@ func monitoringFilter(metric, subscription, topic, extra string) string {
 // monitoring calls projects.timeSeries.list.
 func (c *conn) listTimeSeries(ctx context.Context, p url.Values) (*timeSeriesResp, error) {
 	if c.Monitoring == DefaultMonitoringEndpoint && c.tokens == nil {
-		return nil, errors.New("Cloud Monitoring needs credentials: the gcp_pubsub secret points at an emulator/proxy without SERVICE_ACCOUNT_JSON or ACCESS_TOKEN " +
+		return nil, errors.New("cloud Monitoring needs credentials: the gcp_pubsub secret points at an emulator/proxy without SERVICE_ACCOUNT_JSON or ACCESS_TOKEN " +
 			"(the Pub/Sub emulator has no metrics); set MONITORING_ENDPOINT for a compatible endpoint")
 	}
 	var resp timeSeriesResp
@@ -176,7 +176,7 @@ var timeSeriesColumns = []arrow.Field{
 }
 
 type timeSeriesArgs struct {
-	Metric           string     `vgi:"pos=0,doc=Metric type: a Pub/Sub metric path such as 'subscription/num_undelivered_messages', 'subscription/oldest_unacked_message_age' or 'topic/send_request_count' (pubsub.googleapis.com/ is prefixed), or any full metric type."`
+	Metric           string     `vgi:"pos=0,doc=Cloud Monitoring metric type. A path without a domain is taken as a Pub/Sub metric (pubsub.googleapis.com/ is prefixed); a full metric type is used as given."`
 	StartTime        *time.Time `vgi:"name=start_time,doc=Interval start; default end_time minus one hour."`
 	EndTime          *time.Time `vgi:"name=end_time,doc=Interval end; default now."`
 	Subscription     *string    `vgi:"name=subscription,doc=Only this subscription (id or full name): pushed into the filter as resource.labels.subscription_id."`

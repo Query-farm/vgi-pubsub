@@ -1,16 +1,57 @@
 # Private graders for the public vgi.agent_test_tasks in the worker's catalog metadata.
 # `vgi-lint lint --ai` runs an agent on each prompt and grades it with check_sql.
 # See https://github.com/Query-farm/vgi-lint-check (VGI920).
+#
+# Every task needs a gcp_pubsub secret pointing at the hand-written prod-shop fixture
+# (test/fixture_server/server.py with FIXTURE_REQUIRE_AUTH unset), e.g.
+#   CREATE SECRET (TYPE gcp_pubsub, PROJECT_ID 'prod-shop', ACCESS_TOKEN 'test-token',
+#                  ENDPOINT 'http://127.0.0.1:<port>', MONITORING_ENDPOINT 'http://127.0.0.1:<port>');
 tasks:
-  - name: formal_greeting
-    reference_sql: SELECT pubsub.main.greet('Grace', 'formal') AS greeting
-  - name: sum_of_squares
-    reference_sql: SELECT sum(squared) AS total FROM pubsub.main.sequence_table(10)
-  - name: stepped_sequence
-    reference_sql: SELECT n FROM pubsub.main.sequence_table(4, step := 5) ORDER BY n
-  # Reads the public demo API (https://vgi-starter-api.query-farm.services/v1).
-  - name: items_per_category
-    check_sql: >-
-      SELECT count(*) = 3 AND sum(items) = 25
-      FROM (SELECT category, count(*) AS items
-            FROM pubsub.main.fetch_items('https://vgi-starter-api.query-farm.services/v1') GROUP BY category)
+  - name: push_hosts
+    reference_sql: SELECT subscription, push_endpoint_host FROM pubsub.main.subscriptions() WHERE type = 'push' ORDER BY subscription
+  - name: public_grants
+    reference_sql: >-
+      SELECT resource, role, member FROM pubsub.main.iam_policies()
+      WHERE member IN ('allUsers', 'allAuthenticatedUsers') ORDER BY resource
+  - name: dead_letter
+    reference_sql: >-
+      SELECT subscription, dead_letter_topic, max_delivery_attempts FROM pubsub.main.subscriptions()
+      WHERE dead_letter_topic IS NOT NULL ORDER BY subscription
+  - name: export_problems
+    reference_sql: >-
+      SELECT subscription, type, export_state FROM pubsub.main.subscriptions()
+      WHERE type IN ('bigquery', 'cloud_storage') AND export_state <> 'ACTIVE' ORDER BY subscription
+  - name: schema_history
+    reference_sql: >-
+      SELECT count(*) AS revisions, max(revision_create_time) AS newest
+      FROM pubsub.main.schema_revisions('payment-proto')
+  - name: worst_backlog
+    reference_sql: >-
+      SELECT subscription, undelivered_messages
+      FROM pubsub.main.subscription_backlog(end_time := TIMESTAMPTZ '2026-01-01 00:05:00+00')
+      ORDER BY undelivered_messages DESC NULLS LAST LIMIT 1
+  - name: cmek_topics
+    reference_sql: SELECT topic, kms_key_name FROM pubsub.main.topics() WHERE kms_key_name IS NOT NULL ORDER BY topic
+  - name: missing_access
+    reference_sql: SELECT capability FROM pubsub.main.access_check() WHERE NOT available ORDER BY capability
+  - name: schema_types
+    reference_sql: SELECT schema, type FROM pubsub.main.schemas() ORDER BY schema
+  - name: snapshot_count
+    reference_sql: SELECT count(*) AS snapshots FROM pubsub.main.snapshots()
+  - name: peak_backlog
+    reference_sql: >-
+      SELECT max(value) AS peak FROM pubsub.main.time_series('subscription/num_undelivered_messages',
+        subscription := 'payments-worker', start_time := TIMESTAMPTZ '2026-01-01 00:00:00+00',
+        end_time := TIMESTAMPTZ '2026-01-01 00:03:00+00')
+  - name: subscription_ids
+    reference_sql: >-
+      SELECT pubsub.main.resource_id(n) AS id
+      FROM (VALUES ('projects/p/topics/orders'), ('projects/p/subscriptions/orders-worker')) t(n) ORDER BY id
+  - name: payment_events
+    reference_sql: >-
+      SELECT headers['event'] AS event, count(*) AS messages
+      FROM pubsub.main.read_messages('payments', allow_temporary_subscription := true) GROUP BY ALL ORDER BY event
+  - name: cross_project
+    reference_sql: SELECT pubsub.main.resource_project('projects/shared-infra/topics/events') AS project
+  - name: retention_days
+    reference_sql: SELECT pubsub.main.duration_seconds('1209600s') / 86400 AS days

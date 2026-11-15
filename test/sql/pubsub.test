@@ -321,6 +321,31 @@ SELECT revision_id, revision_create_time::VARCHAR FROM pubsub.main.schema_revisi
 a1b2c3d4	2026-01-15 09:30:00+00
 e5f6a7b8	2026-03-02 10:00:00+00
 
+# read_messages on prod-shop (simulated temporary subscription): with no
+# start_time the seek goes back the topic's full retention.
+query TTTT
+SELECT message_id, key, headers['event'], payload_text::JSON->>'payment_id' FROM pubsub.main.read_messages('payments', allow_temporary_subscription := true) ORDER BY timestamp;
+----
+9001	card-1	authorized	p-1
+9002	card-1	captured	p-1
+9003	card-2	authorized	p-2
+
+query TI
+SELECT headers['currency'], count(*) FROM pubsub.main.read_messages('payments', allow_temporary_subscription := true, filter := 'attributes.event = "authorized"') GROUP BY ALL ORDER BY 1;
+----
+EUR	1
+USD	1
+
+query I
+SELECT count(*) FROM pubsub.main.read_messages('payments', allow_temporary_subscription := true, end_time := TIMESTAMPTZ '2026-01-01 00:00:30+00');
+----
+2
+
+statement error
+SELECT * FROM pubsub.main.read_messages('audit', allow_temporary_subscription := true);
+----
+no message retention
+
 # ------------------------------------------------------------------ IAM (flattened)
 
 query TTTTT
@@ -456,3 +481,21 @@ statement error
 SELECT * FROM pubsub.main.topics(project := 'Bad Project!');
 ----
 invalid project id
+
+# ------------------------------------------------------------------ offline tools (no secret needed)
+
+query TTR
+SELECT pubsub.main.resource_id('projects/p/subscriptions/orders-worker'), pubsub.main.resource_project('projects/p/topics/t'), pubsub.main.duration_seconds('1.5s');
+----
+orders-worker	p	1.5
+
+query TTR
+SELECT pubsub.main.resource_id(NULL), pubsub.main.resource_project('bare-id'), pubsub.main.duration_seconds('later');
+----
+NULL	NULL	NULL
+
+# Vectorized over many rows (more than one batch).
+query II
+SELECT count(*), count(DISTINCT pubsub.main.resource_id('projects/p/topics/t' || i)) FROM range(5000) r(i);
+----
+5000	5000

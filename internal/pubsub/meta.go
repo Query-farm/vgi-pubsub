@@ -41,6 +41,7 @@ var SchemaCategories = []category{
 	{Name: "metrics", Title: "Backlog And Metrics", Description: "Consumer lag and throughput from Cloud Monitoring."},
 	{Name: "messages", Title: "Messages", Description: "Opt-in replay of retained messages through a temporary subscription."},
 	{Name: "status", Title: "Access", Description: "Feature detection of what the credential may read."},
+	{Name: "tools", Title: "Name And Duration Tools", Description: "Offline scalars for resource names and API duration text (no secret)."},
 }
 
 // mustJSON marshals v, panicking on failure (only static data is passed).
@@ -127,16 +128,15 @@ func withExamples(tags map[string]string, lists ...[]vgi.CatalogExample) map[str
 	return tags
 }
 
-const catalogDocLLM = "Read Google Cloud Pub/Sub from SQL. Every function needs a gcp_pubsub DuckDB secret: CREATE SECRET " +
-	"(TYPE gcp_pubsub, PROJECT_ID 'p', SERVICE_ACCOUNT_JSON '<key file>' or ACCESS_TOKEN '<token>'; for the emulator ENDPOINT " +
-	"'localhost:8085' and no credentials). Local Application Default Credentials are used only when the ATTACH sets " +
-	"use_application_default_credentials true. topics(), subscriptions(topic := ...), snapshots() and schemas() / " +
-	"schema_revisions(schema) list resources with typed settings (retention seconds, ack deadline, dead-letter and retry policy, " +
-	"exactly-once, push endpoint host only). iam_policies() flattens resource IAM to one row per role and member. " +
-	"time_series(metric, start_time, end_time) returns Cloud Monitoring points as long rows (labels MAP, ts, value) and " +
-	"subscription_backlog() the current consumer lag per subscription. read_messages(topic, allow_temporary_subscription := true) " +
-	"replays retained messages through a temporary subscription it creates and deletes; it never pulls from an existing " +
-	"subscription. access_check() shows which of these the credential may use. Everything else is read-only."
+const catalogDocLLM = "Inventory, audit and troubleshoot Google Cloud Pub/Sub from SQL: what topics and subscriptions exist and " +
+	"how they deliver (pull, push, BigQuery, Cloud Storage), how long messages are retained, which schemas and encryption keys " +
+	"apply, who holds which IAM role, and how far behind each consumer is. Every API function needs a gcp_pubsub DuckDB secret: " +
+	"CREATE SECRET (TYPE gcp_pubsub, PROJECT_ID 'p', SERVICE_ACCOUNT_JSON '<key file>' or ACCESS_TOKEN '<token>'); for the " +
+	"emulator ENDPOINT 'localhost:8085' and no credentials. Local Application Default Credentials are used only when the ATTACH " +
+	"sets use_application_default_credentials true. Durations are `DOUBLE` seconds, times `TIMESTAMPTZ`, labels and message " +
+	"attributes `MAP(VARCHAR, VARCHAR)`; metrics come from Cloud Monitoring as long rows (labels, ts, value). Message contents " +
+	"are only read on explicit opt-in, through a temporary subscription the worker creates and deletes: an existing subscription " +
+	"is never pulled from. Nothing else changes the project."
 
 // CatalogDocMD is the catalog's comment: one short paragraph for directories.
 const CatalogDocMD = "Google Cloud Pub/Sub as SQL: topics, subscriptions, snapshots, schemas and IAM policies, backlog and " +
@@ -172,18 +172,30 @@ type agentTask struct {
 	Prompt string `json:"prompt"`
 }
 
-// agentTestTasks are graded privately by vgi-agent-tests.yaml.
+// agentTestTasks are graded privately by vgi-agent-tests.yaml. They assume a
+// gcp_pubsub secret pointing at the hand-written prod-shop fixture
+// (test/fixture_server, project prod-shop).
 var agentTestTasks = []agentTask{
-	{Name: "formal_greeting", Prompt: "Using the pubsub worker, greet the name 'Grace' formally."},
-	{Name: "sum_of_squares", Prompt: "Using the pubsub worker, what is the sum of the squared column for the first 10 rows " +
-		"of the sequence with the default step?"},
-	{Name: "stepped_sequence", Prompt: "List the n values of a 4-row sequence that steps by 5, in ascending order."},
-	{Name: "items_per_category", Prompt: "The items API is running at https://vgi-starter-api.query-farm.services/v1. How many items does it have in each category?"},
+	{Name: "push_hosts", Prompt: "Which Pub/Sub subscriptions deliver by push, and to which host?"},
+	{Name: "public_grants", Prompt: "Which Pub/Sub resources grant a role to allUsers or allAuthenticatedUsers?"},
+	{Name: "dead_letter", Prompt: "Which subscriptions have a dead-letter topic, and after how many delivery attempts are messages dead-lettered?"},
+	{Name: "export_problems", Prompt: "Which BigQuery or Cloud Storage export subscriptions are not in the ACTIVE state?"},
+	{Name: "schema_history", Prompt: "How many revisions does the payment-proto schema have, and when was the newest one created?"},
+	{Name: "worst_backlog", Prompt: "At 2026-01-01 00:05 UTC, which subscription had the most undelivered messages, and how many?"},
+	{Name: "cmek_topics", Prompt: "Which topics are encrypted with a customer-managed (Cloud KMS) key?"},
+	{Name: "missing_access", Prompt: "Which Pub/Sub capabilities is the current credential not allowed to use?"},
+	{Name: "schema_types", Prompt: "List each Pub/Sub schema with its type."},
+	{Name: "snapshot_count", Prompt: "How many Pub/Sub snapshots exist in the project?"},
+	{Name: "peak_backlog", Prompt: "What was the peak number of undelivered messages for the payments-worker subscription between 2026-01-01 00:00 and 00:03 UTC, according to Cloud Monitoring?"},
+	{Name: "payment_events", Prompt: "Replay the retained messages of the payments topic and count them per event attribute. You may create a temporary subscription for this."},
+	{Name: "cross_project", Prompt: "Using the pubsub worker's helpers, which project does the topic name 'projects/shared-infra/topics/events' belong to?"},
+	{Name: "retention_days", Prompt: "Using the pubsub worker's helpers, how many days is the API duration '1209600s'?"},
+	{Name: "subscription_ids", Prompt: "Using the pubsub worker's helpers, what are the ids of the resource names 'projects/p/topics/orders' and 'projects/p/subscriptions/orders-worker'?"},
 }
 
 // CatalogTags are the catalog-level discovery tags.
 var CatalogTags = map[string]string{
-	"vgi.title":              "VGI Google Cloud Pub/Sub Worker",
+	"vgi.title":              "Google Cloud Pub/Sub",
 	"vgi.subtitle":           "Topics, subscriptions, schemas, IAM, backlog metrics and opt-in message replay from Google Cloud Pub/Sub.",
 	"vgi.doc_llm":            catalogDocLLM,
 	"vgi.doc_md":             catalogDocMDLong,

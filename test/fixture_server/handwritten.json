@@ -55,12 +55,24 @@
   "body": "{\"subscriptions\": [{\"ackDeadlineSeconds\": 20, \"expirationPolicy\": {}, \"messageRetentionDuration\": \"604800s\", \"name\": \"projects/prod-shop/subscriptions/payments-push\", \"pushConfig\": {\"attributes\": {\"x-goog-version\": \"v1\"}, \"noWrapper\": {\"writeMetadata\": true}, \"oidcToken\": {\"audience\": \"https://hooks.example.com/secret-audience\", \"serviceAccountEmail\": \"pusher@prod-shop.iam.gserviceaccount.com\"}, \"pushEndpoint\": \"https://hooks.example.com/pubsub/receive?token=SECRET-IN-URL\"}, \"retryPolicy\": {\"maximumBackoff\": \"600s\", \"minimumBackoff\": \"10s\"}, \"state\": \"ACTIVE\", \"topic\": \"projects/prod-shop/topics/payments\"}, {\"ackDeadlineSeconds\": 60, \"bigqueryConfig\": {\"serviceAccountEmail\": \"bq-writer@prod-shop.iam.gserviceaccount.com\", \"state\": \"ACTIVE\", \"table\": \"prod-shop.analytics.payments\", \"useTopicSchema\": true, \"writeMetadata\": true}, \"messageRetentionDuration\": \"604800s\", \"name\": \"projects/prod-shop/subscriptions/payments-bq\", \"state\": \"ACTIVE\", \"topic\": \"projects/prod-shop/topics/payments\"}, {\"ackDeadlineSeconds\": 300, \"cloudStorageConfig\": {\"avroConfig\": {\"writeMetadata\": true}, \"bucket\": \"prod-shop-clicks\", \"filenamePrefix\": \"clicks/\", \"maxDuration\": \"300s\", \"state\": \"PERMISSION_DENIED\"}, \"messageRetentionDuration\": \"604800s\", \"name\": \"projects/prod-shop/subscriptions/clicks-archive\", \"state\": \"RESOURCE_ERROR\", \"topic\": \"projects/prod-shop/topics/clickstream-import\"}, {\"ackDeadlineSeconds\": 10, \"deadLetterPolicy\": {\"deadLetterTopic\": \"projects/prod-shop/topics/audit\"}, \"enableExactlyOnceDelivery\": true, \"labels\": {\"team\": \"billing\"}, \"messageRetentionDuration\": \"86400s\", \"name\": \"projects/prod-shop/subscriptions/payments-worker\", \"state\": \"ACTIVE\", \"topic\": \"projects/prod-shop/topics/payments\"}]}",
   "status": 200
  },
+ "GET /v1/projects/prod-shop/topics/audit": {
+  "body": "{\"name\": \"projects/prod-shop/topics/audit\"}",
+  "status": 200
+ },
  "GET /v1/projects/prod-shop/topics/audit:getIamPolicy?options.requestedPolicyVersion=3": {
   "body": "{\"error\": {\"code\": 403, \"message\": \"User not authorized to perform this action.\", \"status\": \"PERMISSION_DENIED\"}}",
   "status": 403
  },
+ "GET /v1/projects/prod-shop/topics/clickstream-import": {
+  "body": "{\"ingestionDataSourceSettings\": {\"awsKinesis\": {\"awsRoleArn\": \"arn:aws:iam::111122223333:role/pubsub-import\", \"consumerArn\": \"arn:aws:kinesis:us-east-1:111122223333:stream/clicks/consumer/gcp:1\", \"gcpServiceAccount\": \"importer@prod-shop.iam.gserviceaccount.com\", \"state\": \"ACTIVE\", \"streamArn\": \"arn:aws:kinesis:us-east-1:111122223333:stream/clicks\"}}, \"labels\": {}, \"name\": \"projects/prod-shop/topics/clickstream-import\", \"state\": \"ACTIVE\"}",
+  "status": 200
+ },
  "GET /v1/projects/prod-shop/topics/clickstream-import:getIamPolicy?options.requestedPolicyVersion=3": {
   "body": "{\"bindings\": [{\"members\": [\"allUsers\"], \"role\": \"roles/pubsub.subscriber\"}], \"etag\": \"BwYA2\", \"version\": 1}",
+  "status": 200
+ },
+ "GET /v1/projects/prod-shop/topics/payments": {
+  "body": "{\"kmsKeyName\": \"projects/prod-shop/locations/us/keyRings/pubsub/cryptoKeys/payments\", \"labels\": {\"team\": \"billing\", \"tier\": \"critical\"}, \"messageRetentionDuration\": \"604800s\", \"messageStoragePolicy\": {\"allowedPersistenceRegions\": [\"us-central1\", \"us-east1\"], \"enforceInTransit\": true}, \"name\": \"projects/prod-shop/topics/payments\", \"satisfiesPzs\": false, \"schemaSettings\": {\"encoding\": \"BINARY\", \"firstRevisionId\": \"a1b2c3d4\", \"lastRevisionId\": \"e5f6a7b8\", \"schema\": \"projects/prod-shop/schemas/payment-proto\"}, \"state\": \"ACTIVE\"}",
   "status": 200
  },
  "GET /v1/projects/prod-shop/topics/payments:getIamPolicy?options.requestedPolicyVersion=3": {
