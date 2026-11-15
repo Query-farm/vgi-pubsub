@@ -151,7 +151,12 @@ const catalogDocMDLong = "# Google Cloud Pub/Sub in DuckDB\n\n" +
 	"- **Backlog**: Cloud Monitoring series (`labels`, `ts`, `value`) and the current consumer lag per subscription.\n" +
 	"- **Messages**: opt-in replay of retained messages through a temporary subscription that the worker deletes. " +
 	"Existing subscriptions are never pulled from.\n\n" +
-	"Credentials come from a `gcp_pubsub` DuckDB secret (service account key or access token)."
+	"Credentials come from a `gcp_pubsub` DuckDB secret (service account key or access token).\n\n" +
+	"Upstream references: the [Pub/Sub REST API](https://cloud.google.com/pubsub/docs/reference/rest), " +
+	"[Pub/Sub monitoring metrics](https://cloud.google.com/pubsub/docs/monitoring) via the " +
+	"[Cloud Monitoring API](https://cloud.google.com/monitoring/api/v3), " +
+	"[Pub/Sub access control](https://cloud.google.com/pubsub/docs/access-control), and the " +
+	"[Pub/Sub emulator](https://cloud.google.com/pubsub/docs/emulator)."
 
 const schemaDocLLM = "The main schema holds every function; all are table functions taking project := (default the secret's " +
 	"PROJECT_ID) and secret_name := (default the gcp_pubsub secret whose scope matches). Resource names are accepted as ids " +
@@ -160,11 +165,19 @@ const schemaDocLLM = "The main schema holds every function; all are table functi
 	"read_messages shares the messaging columns of the other VGI messaging workers: timestamp (publish time), key (ordering " +
 	"key), payload `BLOB`, payload_text, payload_bytes, headers (attributes). Monitoring functions need roles/monitoring.viewer."
 
-// SchemaDocMD is the main schema's human-facing description (also its comment).
+// SchemaComment is the main schema's one-line comment.
+const SchemaComment = "Read-only SQL over one Google Cloud project's Pub/Sub resources, IAM, backlog metrics and opt-in message replay."
+
+// SchemaDocMD is the main schema's human-facing description.
 const SchemaDocMD = "## main\n\n" +
-	"Every function the Pub/Sub worker exposes. Listings call the Pub/Sub REST API with read-only GETs; metrics come from " +
-	"Cloud Monitoring; `read_messages` is the one function that creates (and deletes) a resource, and only when you opt in.\n\n" +
-	"Start with `access_check()` and `subscriptions()`; use `subscription_backlog()` to find lagging consumers."
+	"A read-only view of one Google Cloud project's Pub/Sub deployment, for platform engineers auditing configuration " +
+	"and on-call engineers chasing a lagging consumer. Resource listings are read-only GETs against the Pub/Sub REST " +
+	"API; time series come from Cloud Monitoring and need `roles/monitoring.viewer`.\n\n" +
+	"Every function takes `project` (default: the secret's `PROJECT_ID`) and `secret_name` (default: the matching " +
+	"`gcp_pubsub` secret). Names are accepted as short ids or full resource names, and name columns always hold full " +
+	"names, so joins between resources work without string surgery.\n\n" +
+	"Message contents are never read from an existing subscription. Replaying retained messages is an explicit opt-in " +
+	"that creates a temporary subscription and deletes it afterwards; nothing else changes the project."
 
 // agentTask is one public analyst task for `vgi-lint simulate`.
 type agentTask struct {
