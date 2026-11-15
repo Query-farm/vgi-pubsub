@@ -6,3 +6,4 @@ dist/
 coverage.*
 duckdb_unittest_tempdir/
 .DS_Store
+test/fixture_server/recorded.json.lock

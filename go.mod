@@ -8,10 +8,12 @@ require (
 	github.com/Query-farm/vgi-go v0.42.0
 	github.com/Query-farm/vgi-rpc-go v0.37.0
 	github.com/apache/arrow-go/v18 v18.7.0
+	golang.org/x/oauth2 v0.38.0
 	modernc.org/sqlite v1.56.0
 )
 
 require (
+	cloud.google.com/go/compute/metadata v0.3.0 // indirect
 	github.com/andybalholm/brotli v1.2.2 // indirect
 	github.com/apache/thrift v0.24.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect

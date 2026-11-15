@@ -13,7 +13,8 @@
 # Optional:
 #   TRANSPORT         stdio | launch | http                        (default: stdio)
 #   HAYBARN_UNITTEST  path to haybarn-unittest   (default: the one on PATH)
-#   PYTHON            command for the mock API, may contain spaces (default: python3)
+#   PYTHON            command for the fixture server, may contain spaces (default: python3)
+#   PUBSUB_RECORD_UPSTREAM  live Pub/Sub emulator URL: record unrecorded responses
 #   MIN_EXECUTED      fail if fewer test cases ran (default: 1)
 #   EXPECTED_SKIP_REASONS  newline-separated skip reasons that are allowed,
 #                     e.g. "require-env PUBSUB_LIVE". Any other skip fails.
@@ -71,13 +72,27 @@ start_server() {
   echo "::error::'$*' never printed PORT:<n>"; cat "$log"; return 1
 }
 
-# The mock APIs fetch_items is tested against. The plain one rate-limits every
-# page once (429 + Retry-After) so the retry path is always exercised.
-unset PUBSUB_API_TOKEN
-MOCK_API_FLAKY=1 start_server "$STAGE/mock.log" $PYTHON "$REPO/test/mock_api/server.py"
-export PUBSUB_MOCK_API="http://127.0.0.1:$PORT"
-MOCK_API_TOKEN=test-token start_server "$STAGE/mock-auth.log" $PYTHON "$REPO/test/mock_api/server.py"
-export PUBSUB_MOCK_API_AUTH="http://127.0.0.1:$PORT"
+# The fixture API servers replay Pub/Sub and Cloud Monitoring REST responses
+# (test/fixture_server): recorded from the real Pub/Sub emulator plus
+# hand-written documented shapes the emulator cannot produce (IAM, metrics).
+# The plain one answers every request with 429 + Retry-After: 0 once (so
+# retries are always exercised); the auth one demands a bearer token and also
+# serves the OAuth token endpoint a service-account key exchanges its JWT at.
+# With PUBSUB_RECORD_UPSTREAM set (a live emulator, test/fixture/run-emulator.sh)
+# unrecorded /v1 requests are forwarded there and saved.
+REC=()
+[ -n "${PUBSUB_RECORD_UPSTREAM:-}" ] && REC=(--record "$PUBSUB_RECORD_UPSTREAM")
+FIXTURE_FLAKY="$([ -n "${PUBSUB_RECORD_UPSTREAM:-}" ] && echo 0 || echo 1)" \
+  start_server "$STAGE/fixture.log" $PYTHON "$REPO/test/fixture_server/server.py" ${REC[@]+"${REC[@]}"}
+export PUBSUB_FIXTURE_URL="http://127.0.0.1:$PORT"
+FIXTURE_REQUIRE_AUTH=1 start_server "$STAGE/fixture-auth.log" $PYTHON "$REPO/test/fixture_server/server.py" ${REC[@]+"${REC[@]}"}
+export PUBSUB_FIXTURE_AUTH_URL="http://127.0.0.1:$PORT"
+
+# A throwaway service-account key (generated per run, never committed) whose
+# token_uri is the auth fixture's /token endpoint.
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$STAGE/sa.pem" 2>/dev/null
+PUBSUB_TEST_SA_KEY="$($PYTHON -c 'import json,sys; print(json.dumps({"type": "service_account", "project_id": "prod-shop", "private_key_id": "test", "private_key": open(sys.argv[1]).read(), "client_email": "vgi-test@prod-shop.iam.gserviceaccount.com", "client_id": "1", "token_uri": sys.argv[2] + "/token"}))' "$STAGE/sa.pem" "$PUBSUB_FIXTURE_AUTH_URL")"
+export PUBSUB_TEST_SA_KEY
 
 HTTP=0
 case "$TRANSPORT" in

@@ -35,9 +35,12 @@ type category struct {
 // SchemaCategories group functions in docs and agent tools. Every function's
 // vgi.category must name one of these.
 var SchemaCategories = []category{
-	{Name: "text", Title: "Text", Description: "Functions that build or transform strings."},
-	{Name: "generators", Title: "Generators", Description: "Table functions that generate rows."},
-	{Name: "api", Title: "REST APIs", Description: "Table functions that read from HTTP APIs."},
+	{Name: "resources", Title: "Topics And Subscriptions", Description: "Topics, subscriptions and snapshots with their delivery, retention, encryption and export settings."},
+	{Name: "schemas", Title: "Schemas", Description: "Avro and Protocol Buffer schemas and their revision history."},
+	{Name: "security", Title: "IAM", Description: "Resource-level IAM policies flattened to role/member rows."},
+	{Name: "metrics", Title: "Backlog And Metrics", Description: "Consumer lag and throughput from Cloud Monitoring."},
+	{Name: "messages", Title: "Messages", Description: "Opt-in replay of retained messages through a temporary subscription."},
+	{Name: "status", Title: "Access", Description: "Feature detection of what the credential may read."},
 }
 
 // mustJSON marshals v, panicking on failure (only static data is passed).
@@ -124,40 +127,44 @@ func withExamples(tags map[string]string, lists ...[]vgi.CatalogExample) map[str
 	return tags
 }
 
-const catalogDocLLM = "An example VGI worker generated from the Query.Farm starter template. It " +
-	"shows the three shapes most workers need: a vectorized scalar function with an overload, a " +
-	"deterministic table function with a named default argument, and a table function that pages " +
-	"through a REST API with retries and an optional bearer token taken from a DuckDB secret or an " +
-	"environment variable. Replace them with your own functions; keep the metadata complete so " +
-	"agents can discover and call them."
+const catalogDocLLM = "Read Google Cloud Pub/Sub from SQL. Every function needs a gcp_pubsub DuckDB secret: CREATE SECRET " +
+	"(TYPE gcp_pubsub, PROJECT_ID 'p', SERVICE_ACCOUNT_JSON '<key file>' or ACCESS_TOKEN '<token>'; for the emulator ENDPOINT " +
+	"'localhost:8085' and no credentials). Local Application Default Credentials are used only when the ATTACH sets " +
+	"use_application_default_credentials true. topics(), subscriptions(topic := ...), snapshots() and schemas() / " +
+	"schema_revisions(schema) list resources with typed settings (retention seconds, ack deadline, dead-letter and retry policy, " +
+	"exactly-once, push endpoint host only). iam_policies() flattens resource IAM to one row per role and member. " +
+	"time_series(metric, start_time, end_time) returns Cloud Monitoring points as long rows (labels MAP, ts, value) and " +
+	"subscription_backlog() the current consumer lag per subscription. read_messages(topic, allow_temporary_subscription := true) " +
+	"replays retained messages through a temporary subscription it creates and deletes; it never pulls from an existing " +
+	"subscription. access_check() shows which of these the credential may use. Everything else is read-only."
 
-// CatalogDocMD is the catalog's long human-facing description (also its comment).
-const CatalogDocMD = "# VGI pubsub worker\n\n" +
-	"**An example [VGI](https://query.farm/vgi) worker that brings custom functions into DuckDB " +
-	"SQL.** It was generated from the Query.Farm starter template and is meant to be renamed and " +
-	"rewritten: every function here demonstrates one pattern you will reuse, from vectorized scalars " +
-	"and streaming table functions to a REST API reader that retries politely and reads a bearer " +
-	"token from a DuckDB secret or the environment.\n\n" +
-	"The worker speaks Apache Arrow to DuckDB over stdin/stdout, a Unix socket, or HTTP, so the " +
-	"same code runs as a local subprocess or a hosted service. See the " +
-	"[VGI documentation](https://query.farm/vgi/docs/) to learn more."
+// CatalogDocMD is the catalog's comment: one short paragraph for directories.
+const CatalogDocMD = "Google Cloud Pub/Sub as SQL: topics, subscriptions, snapshots, schemas and IAM policies, backlog and " +
+	"throughput metrics from Cloud Monitoring, and opt-in replay of retained messages. Works with the Pub/Sub emulator."
 
-const schemaDocLLM = "The `main` schema holds the starter template's example functions, one per common worker " +
-	"pattern. `greet(name)` and `greet(name, style)` are vectorized scalars: use them inside a " +
-	"projection or predicate, one result per row; `style` is a constant that must be 'casual' or " +
-	"'formal'. `sequence_table(count, step := 1)` is a deterministic table function that returns " +
-	"`count` rows of `(n, squared)`; use it for demos, tests, and as a template for generators. " +
-	"`fetch_items(base_url, page_size := 100)` reads every item from a paginated JSON REST API as " +
-	"`(id, name, category, price)` rows, streaming one page per batch, retrying rate-limited " +
-	"requests, and authenticating with a `pubsub_api` DuckDB secret or the `PUBSUB_API_TOKEN` " +
-	"environment variable. Scalars cannot take named arguments; table functions can."
+const catalogDocMDLong = "# Google Cloud Pub/Sub in DuckDB\n\n" +
+	"Inventory and troubleshoot Pub/Sub from SQL with typed columns: durations as `DOUBLE` seconds, times as `TIMESTAMPTZ`, " +
+	"labels and attributes as `MAP`.\n\n" +
+	"- **Resources**: topics (retention, schema, CMEK, ingestion), subscriptions (type, ack deadline, dead-letter, retry, " +
+	"exactly-once, filter; push endpoint host only), snapshots, schemas and revisions.\n" +
+	"- **IAM**: resource policies flattened to role/member rows, with unreadable policies reported, not hidden.\n" +
+	"- **Backlog**: Cloud Monitoring series (`labels`, `ts`, `value`) and the current consumer lag per subscription.\n" +
+	"- **Messages**: opt-in replay of retained messages through a temporary subscription that the worker deletes. " +
+	"Existing subscriptions are never pulled from.\n\n" +
+	"Credentials come from a `gcp_pubsub` DuckDB secret (service account key or access token)."
+
+const schemaDocLLM = "The main schema holds every function; all are table functions taking project := (default the secret's " +
+	"PROJECT_ID) and secret_name := (default the gcp_pubsub secret whose scope matches). Resource names are accepted as ids " +
+	"('orders') or full names ('projects/p/topics/orders'); name columns hold full names, so join subscriptions.topic = " +
+	"topics.name. Durations are `DOUBLE` seconds, times `TIMESTAMPTZ`, labels and message attributes `MAP(VARCHAR, VARCHAR)`. " +
+	"read_messages shares the messaging columns of the other VGI messaging workers: timestamp (publish time), key (ordering " +
+	"key), payload `BLOB`, payload_text, payload_bytes, headers (attributes). Monitoring functions need roles/monitoring.viewer."
 
 // SchemaDocMD is the main schema's human-facing description (also its comment).
 const SchemaDocMD = "## main\n\n" +
-	"The starter template's example functions, one per common worker pattern.\n\n" +
-	"- **Scalars** answer one question per row and slot into a projection or predicate.\n" +
-	"- **Table functions** return sets of rows, streamed to DuckDB in Arrow batches.\n" +
-	"- **REST readers** page through an HTTP API and authenticate with a DuckDB secret."
+	"Every function the Pub/Sub worker exposes. Listings call the Pub/Sub REST API with read-only GETs; metrics come from " +
+	"Cloud Monitoring; `read_messages` is the one function that creates (and deletes) a resource, and only when you opt in.\n\n" +
+	"Start with `access_check()` and `subscriptions()`; use `subscription_backlog()` to find lagging consumers."
 
 // agentTask is one public analyst task for `vgi-lint simulate`.
 type agentTask struct {
@@ -176,16 +183,16 @@ var agentTestTasks = []agentTask{
 
 // CatalogTags are the catalog-level discovery tags.
 var CatalogTags = map[string]string{
-	"vgi.title":              "VGI Pubsub Worker",
-	"vgi.subtitle":           "Example DuckDB functions to rename and replace: a scalar, a table function and a REST API reader.",
+	"vgi.title":              "VGI Google Cloud Pub/Sub Worker",
+	"vgi.subtitle":           "Topics, subscriptions, schemas, IAM, backlog metrics and opt-in message replay from Google Cloud Pub/Sub.",
 	"vgi.doc_llm":            catalogDocLLM,
-	"vgi.doc_md":             CatalogDocMD,
+	"vgi.doc_md":             catalogDocMDLong,
 	"vgi.source_url":         SourceURL,
 	"vgi.icon_url":           "https://query.farm/media-kit/products/vgi/vgi-logo.png",
 	"vgi.license":            "0BSD",
 	"vgi.author":             "Query.Farm",
-	"vgi.copyright":          "Copyright 2026 Query.Farm LLC",
-	"vgi.keywords":           keywordsArray("vgi, duckdb, starter template, example worker, rest api, table function"),
+	"vgi.copyright":          "Copyright 2026 Query Farm LLC - https://query.farm",
+	"vgi.keywords":           keywordsArray("google cloud pub/sub, pubsub, gcp, messaging, topics, subscriptions, backlog, consumer lag, iam, cloud monitoring"),
 	"vgi.support_contact":    SourceURL + "/issues",
 	"vgi.support_policy_url": SourceURL + "#support",
 	// Public analyst tasks for `vgi-lint simulate`; private graders live in vgi-agent-tests.yaml.
@@ -195,9 +202,9 @@ var CatalogTags = map[string]string{
 // schemaTags builds the main schema's tags; allExamples feeds vgi.example_queries.
 func schemaTags(allExamples []exampleQuery) map[string]string {
 	return map[string]string{
-		"vgi.title":           "Pubsub Functions",
-		"domain":              "examples",
-		"vgi.keywords":        keywordsArray("greeting, sequence, generator, rest api, pagination"),
+		"vgi.title":           "Pub/Sub Functions",
+		"domain":              "messaging",
+		"vgi.keywords":        keywordsArray("topics, subscriptions, snapshots, schemas, iam, backlog, time series, messages"),
 		"vgi.doc_llm":         schemaDocLLM,
 		"vgi.doc_md":          SchemaDocMD,
 		"vgi.categories":      mustJSON(SchemaCategories),

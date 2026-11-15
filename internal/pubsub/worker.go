@@ -1,6 +1,6 @@
-// Package pubsub assembles the example functions into a catalog.
+// Package pubsub exposes Google Cloud Pub/Sub (and its Cloud Monitoring metrics) as a VGI catalog.
 //
-// To add a function: write it (see greet.go / sequence.go / fetch_items.go),
+// To add a function: write it (see resources.go for a paged listing),
 // then register it in NewWorker below.
 //
 // Run it:
@@ -20,7 +20,8 @@ import (
 
 // allExamples lists every function's examples for the schema-level tag.
 func allExamples() []exampleQuery {
-	return exampleQueries(greetExamples, greetWithStyleExamples, sequenceExamples, fetchExamples)
+	return exampleQueries(topicsExamples, subscriptionsExamples, snapshotsExamples, schemasExamples, schemaRevisionsExamples,
+		iamExamples, timeSeriesExamples, backlogExamples, messagesExamples, accessExamples)
 }
 
 // NewWorker builds the worker: one catalog, one main schema. Extra options
@@ -35,11 +36,12 @@ func NewWorker(opts ...vgi.WorkerOption) *vgi.Worker {
 		vgi.WithSchemaComments(map[string]string{"main": SchemaDocMD}),
 		vgi.WithSchemaTags(map[string]map[string]string{"main": schemaTags(allExamples())}),
 		vgi.WithSecretTypes(APISecretType),
+		vgi.WithAttachOptions(AttachOptionSpecs...),
 	}
 	w := vgi.NewWorker(append(base, opts...)...)
-	w.RegisterScalar(vgi.AsScalarFunction[greetArgs](&Greet{}))
-	w.RegisterScalar(vgi.AsScalarFunction[greetWithStyleArgs](&GreetWithStyle{}))
-	w.RegisterTable(NewSequenceTable())
-	w.RegisterTable(NewFetchItems())
+	for _, f := range []vgi.TableFunction{newTopics(), newSubscriptions(), newSnapshots(), newSchemas(), newSchemaRevisions(),
+		newIAMPolicies(), newTimeSeries(), newSubscriptionBacklog(), newReadMessages(), newAccessCheck()} {
+		w.RegisterTable(f)
+	}
 	return w
 }

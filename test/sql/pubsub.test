@@ -1,148 +1,458 @@
 # name: test/sql/pubsub.test
-# description: SQL-level tests for the pubsub worker, run through DuckDB by ci/run-integration.sh
+# description: SQL tests for the pubsub worker against replayed Pub/Sub emulator and Cloud Monitoring responses (test/fixture_server)
 # group: [pubsub]
-# managed-by: vgi-starters (edit upstream in shared/, then run tools/render.py)
 
 require vgi
 
 require-env PUBSUB_WORKER
 
-require-env PUBSUB_MOCK_API
+require-env PUBSUB_FIXTURE_URL
 
-require-env PUBSUB_MOCK_API_AUTH
+require-env PUBSUB_FIXTURE_AUTH_URL
+
+require-env PUBSUB_TEST_SA_KEY
 
 statement ok
 ATTACH 'pubsub' (TYPE vgi, LOCATION '{PUBSUB_WORKER}');
 
-# ---------------------------------------------------------------- greet (scalar)
+statement ok
+INSTALL icu;
 
-query T
-SELECT pubsub.main.greet('Ada');
-----
-Hi, Ada!
+statement ok
+LOAD icu;
 
-query T
-SELECT pubsub.main.greet('Ada', 'formal');
-----
-Good day, Ada.
+statement ok
+INSTALL json;
 
-# NULL in, NULL out.
-query T
-SELECT pubsub.main.greet(NULL);
-----
-NULL
+statement ok
+LOAD json;
 
-# Works over a whole column, one result per row.
-query T
-SELECT pubsub.main.greet(name) FROM (VALUES ('Ada'), ('Grace'), (NULL)) AS t(name) ORDER BY ALL NULLS LAST;
-----
-Hi, Ada!
-Hi, Grace!
-NULL
+statement ok
+SET TimeZone = 'UTC';
 
-# `style` is constrained to 'casual' | 'formal' and checked when the query is bound.
-# (No expected message: each SDK words constraint errors its own way.)
+# ------------------------------------------------------------------ secrets
+
+# Without a secret every function says how to create one.
 statement error
-SELECT pubsub.main.greet('Ada', 'loud');
+SELECT * FROM pubsub.main.topics();
 ----
-<REGEX>:.*
+CREATE SECRET
 
-# ------------------------------------------------------ sequence_table (table fn)
+# A secret for the real Google endpoint without credentials is refused, and
+# points at the ADC opt-in instead of reading local credentials.
+statement ok
+CREATE SECRET nocreds (TYPE gcp_pubsub, PROJECT_ID 'vgi-test');
 
-query II
-SELECT n, squared FROM pubsub.main.sequence_table(4) ORDER BY n;
+statement error
+SELECT * FROM pubsub.main.topics(secret_name := 'nocreds');
 ----
-0	0
-1	1
-2	4
-3	9
+use_application_default_credentials
 
-# Named argument with a default.
+statement ok
+DROP SECRET nocreds;
+
+# The emulator (recorded): ENDPOINT only, no credentials.
+statement ok
+CREATE SECRET emu (TYPE gcp_pubsub, PROJECT_ID 'vgi-test', ENDPOINT '{PUBSUB_FIXTURE_URL}', MONITORING_ENDPOINT '{PUBSUB_FIXTURE_URL}');
+
+# ------------------------------------------------------------------ topics
+
+query TTTR
+SELECT project, topic, labels['team'], message_retention_seconds FROM pubsub.main.topics() ORDER BY topic;
+----
+vgi-test	events	NULL	NULL
+vgi-test	orders	shop	86400.0
+vgi-test	orders-dlq	shop	NULL
+vgi-test	typed-orders	NULL	3600.0
+
+# Pagination: one topic per API page, following nextPageToken.
 query I
-SELECT n FROM pubsub.main.sequence_table(3, step := 5) ORDER BY n;
+SELECT count(*) FROM pubsub.main.topics(page_size := 1);
+----
+4
+
+# topic := is one GET; an unknown topic is zero rows.
+query TT
+SELECT name, map_keys(labels)::VARCHAR FROM pubsub.main.topics(topic := 'orders');
+----
+projects/vgi-test/topics/orders	[env, team]
+
+query I
+SELECT count(*) FROM pubsub.main.topics(topic := 'projects/vgi-test/topics/no-such-topic');
 ----
 0
-5
-10
 
-# Larger than one batch: the cursor must carry across process calls.
-query II
-SELECT count(*), max(n) FROM pubsub.main.sequence_table(25000);
+statement error
+SELECT * FROM pubsub.main.topics(topic := 'projects/vgi-test/subscriptions/x');
 ----
-25000	24999
+not a topic name
+
+query TTTTT
+SELECT schema, schema_encoding, kms_key_name, allowed_persistence_regions::VARCHAR, ingestion_source FROM pubsub.main.topics(topic := 'typed-orders');
+----
+projects/vgi-test/schemas/order-avro	JSON	NULL	[]	NULL
+
+# ------------------------------------------------------------------ subscriptions
+
+query TTTIRTTT
+SELECT subscription, topic, type, ack_deadline_seconds, message_retention_seconds, retain_acked_messages, enable_message_ordering, filter
+FROM pubsub.main.subscriptions() ORDER BY subscription;
+----
+events-audit	projects/vgi-test/topics/events	pull	120	604800.0	false	false	NULL
+orders-retry	projects/vgi-test/topics/orders	pull	10	604800.0	false	false	NULL
+orders-tenant-a	projects/vgi-test/topics/orders	pull	10	86400.0	true	false	attributes.tenant = "a"
+orders-worker	projects/vgi-test/topics/orders	pull	30	604800.0	false	true	NULL
+
+query TIRRTR
+SELECT dead_letter_topic, max_delivery_attempts, retry_minimum_backoff_seconds, retry_maximum_backoff_seconds, enable_exactly_once_delivery, expiration_ttl_seconds
+FROM pubsub.main.subscriptions(subscription := 'orders-retry');
+----
+projects/vgi-test/topics/orders-dlq	7	10.0	600.0	true	172800.0
+
+# topic := uses the topic's own subscription listing.
+query T
+SELECT subscription FROM pubsub.main.subscriptions(topic := 'orders') ORDER BY subscription;
+----
+orders-retry
+orders-tenant-a
+orders-worker
 
 query I
-SELECT count(*) FROM pubsub.main.sequence_table(0);
+SELECT count(*) FROM pubsub.main.subscriptions(subscription := 'gone-subscription');
 ----
 0
 
-# count is constrained to [0, 1000000].
-statement error
-SELECT * FROM pubsub.main.sequence_table(-1);
-----
-<REGEX>:.*
-
-# Named arguments are constrained too: step >= 1.
-statement error
-SELECT * FROM pubsub.main.sequence_table(3, step := 0);
-----
-<REGEX>:.*
-
-# ------------------------------------------------- fetch_items (REST table fn)
-
-query IIT
-SELECT count(*), sum(id), min(name) FROM pubsub.main.fetch_items('{PUBSUB_MOCK_API}', page_size := 4);
-----
-25	325	item-01
-
+# Subscriptions per topic: orders-dlq and typed-orders have none.
 query TI
-SELECT category, count(*) FROM pubsub.main.fetch_items('{PUBSUB_MOCK_API}') GROUP BY category ORDER BY category;
+SELECT t.topic, count(s.name) FROM pubsub.main.topics() t LEFT JOIN pubsub.main.subscriptions() s ON s.topic = t.name GROUP BY t.topic ORDER BY t.topic;
 ----
-hardware	8
-service	8
-software	9
+events	1
+orders	3
+orders-dlq	0
+typed-orders	0
 
-# The harness runs PUBSUB_MOCK_API with MOCK_API_FLAKY=1: every page answers
-# 429 + Retry-After once, so every query above also exercised the retry path.
+# ------------------------------------------------------------------ snapshots and schemas
 
-# PUBSUB_MOCK_API_AUTH requires a bearer token ('test-token'). Every language's
-# fetch_items must put the HTTP status code in its error message.
-statement error
-SELECT count(*) FROM pubsub.main.fetch_items('{PUBSUB_MOCK_API_AUTH}');
+# (The emulator does not keep snapshot labels.)
+query TTTT
+SELECT snapshot, topic, labels['reason'], expire_time > TIMESTAMPTZ '2026-01-01 00:00:00+00' FROM pubsub.main.snapshots();
 ----
-401
-
-statement ok
-CREATE SECRET pubsub_api_test (TYPE pubsub_api, TOKEN 'test-token');
+orders-before-deploy	projects/vgi-test/topics/orders	NULL	true
 
 query I
-SELECT count(*) FROM pubsub.main.fetch_items('{PUBSUB_MOCK_API_AUTH}', page_size := 25);
+SELECT count(*) FROM pubsub.main.snapshots(topic := 'orders');
 ----
-25
+1
 
-# Several pages: the token must survive between batches (over HTTP each batch is a
-# separate request, so a token kept only in memory is lost after page 1).
-query I
-SELECT count(*) FROM pubsub.main.fetch_items('{PUBSUB_MOCK_API_AUTH}', page_size := 7);
+query TTT
+SELECT schema, type, definition::JSON->>'name' FROM pubsub.main.schemas();
 ----
-25
+order-avro	AVRO	Order
+
+query IT
+SELECT count(*), list(json_array_length(definition::JSON->'fields') ORDER BY json_array_length(definition::JSON->'fields'))::VARCHAR FROM pubsub.main.schema_revisions('order-avro');
+----
+2	[1, 2]
+
+# ------------------------------------------------------------------ IAM on the emulator
+
+# The emulator implements no IAM (and rejects the snapshot and schema IAM paths):
+# every resource is still reported, with the status.
+query TTT
+SELECT resource_type, count(*), string_agg(DISTINCT error, ',') FROM pubsub.main.iam_policies() GROUP BY resource_type ORDER BY resource_type;
+----
+schema	1	INVALID_ARGUMENT
+snapshot	1	INVALID_ARGUMENT
+subscription	4	UNIMPLEMENTED
+topic	4	UNIMPLEMENTED
+
+statement error
+SELECT * FROM pubsub.main.iam_policies(resource := 'orders');
+----
+resource_type
+
+# ------------------------------------------------------------------ read_messages
+
+# Opt-in is required.
+statement error
+SELECT * FROM pubsub.main.read_messages('orders');
+----
+allow_temporary_subscription := true
+
+query ITTTIT
+SELECT count(*), min(subscription LIKE 'vgi-temp-%')::VARCHAR, min(sequence IS NULL)::VARCHAR, string_agg(DISTINCT topic, ','), sum(payload_bytes), string_agg(DISTINCT project, ',')
+FROM pubsub.main.read_messages('orders', allow_temporary_subscription := true, start_time := TIMESTAMPTZ '2026-01-01 00:00:00+00');
+----
+5	true	true	orders	91	vgi-test
+
+query TTTT
+SELECT message_id, key, headers['tenant'], coalesce(payload_text, '<binary>')
+FROM pubsub.main.read_messages('orders', allow_temporary_subscription := true, start_time := TIMESTAMPTZ '2026-01-01 00:00:00+00')
+ORDER BY message_id;
+----
+1	cust-1	a	{"order_id":1,"total":9.5}
+2	cust-2	b	{"order_id":2,"total":20}
+3	cust-1	a	{"order_id":1,"total":9.5}
+4	NULL	b	<binary>
+5	NULL	c	plain text
+
+# Binary payloads keep their bytes.
+query T
+SELECT payload FROM pubsub.main.read_messages('orders', allow_temporary_subscription := true, start_time := TIMESTAMPTZ '2026-01-01 00:00:00+00')
+WHERE headers['event'] = 'binary';
+----
+\xFF\x00\xFE\x01
+
+# The filter is set on the temporary subscription (server-side).
+query TT
+SELECT headers['tenant'], headers['event'] FROM pubsub.main.read_messages('orders', allow_temporary_subscription := true,
+  start_time := TIMESTAMPTZ '2026-01-01 00:00:00+00', filter := 'attributes.tenant = "a"') ORDER BY message_id;
+----
+a	created
+a	paid
+
+query I
+SELECT count(*) FROM pubsub.main.read_messages('orders', allow_temporary_subscription := true,
+  start_time := TIMESTAMPTZ '2026-01-01 00:00:00+00', max_messages := 2);
+----
+2
+
+query I
+SELECT count(*) FROM pubsub.main.read_messages('orders', allow_temporary_subscription := true, snapshot := 'orders-before-deploy');
+----
+5
+
+query T
+SELECT payload_text::JSON->>'id' FROM pubsub.main.read_messages('typed-orders', allow_temporary_subscription := true,
+  start_time := TIMESTAMPTZ '2026-01-01 00:00:00+00');
+----
+o-1
+
+# Truncation keeps payload_bytes at the full size.
+query IIT
+SELECT octet_length(payload), payload_bytes, payload_text FROM pubsub.main.read_messages('orders', allow_temporary_subscription := true,
+  start_time := TIMESTAMPTZ '2026-01-01 00:00:00+00', truncate := 5) WHERE headers['tenant'] = 'c';
+----
+5	10	plain
+
+# A topic without retention cannot be replayed.
+statement error
+SELECT * FROM pubsub.main.read_messages('events', allow_temporary_subscription := true);
+----
+no message retention
+
+statement error
+SELECT * FROM pubsub.main.read_messages('orders', allow_temporary_subscription := true, start_time := TIMESTAMPTZ '2026-01-01 00:00:00+00', snapshot := 'x-snap');
+----
+not both
+
+# ------------------------------------------------------------------ access and metrics on the emulator project
+
+query TTT
+SELECT capability, available::VARCHAR, status FROM pubsub.main.access_check() ORDER BY capability;
+----
+attach_subscription	false	UNIMPLEMENTED
+list_schemas	true	OK
+list_snapshots	true	OK
+list_subscriptions	true	OK
+list_topics	true	OK
+monitoring_metrics	false	PERMISSION_DENIED
+read_iam_policy	false	UNIMPLEMENTED
+
+statement error
+SELECT * FROM pubsub.main.time_series('subscription/num_undelivered_messages');
+----
+roles/monitoring.viewer
 
 statement ok
-DROP SECRET pubsub_api_test;
+DROP SECRET emu;
 
-# base_url must be http(s).
-statement error
-SELECT * FROM pubsub.main.fetch_items('ftp://example.com');
-----
-<REGEX>:.*
+# ------------------------------------------------------------------ prod-shop (hand-written REST shapes)
 
-# page_size is a named argument constrained to [1, 1000].
-statement error
-SELECT * FROM pubsub.main.fetch_items('{PUBSUB_MOCK_API}', page_size := 0);
+# A service-account key: the worker signs a JWT and exchanges it at the key's
+# token_uri (the auth fixture, which rejects requests without that token).
+statement ok
+CREATE SECRET prod (TYPE gcp_pubsub, SERVICE_ACCOUNT_JSON '{PUBSUB_TEST_SA_KEY}', ENDPOINT '{PUBSUB_FIXTURE_AUTH_URL}', MONITORING_ENDPOINT '{PUBSUB_FIXTURE_AUTH_URL}');
+
+# PROJECT_ID defaults to the key's project_id.
+query TTRTTT
+SELECT topic, labels['tier'], message_retention_seconds, kms_key_name IS NOT NULL, allowed_persistence_regions::VARCHAR, schema_encoding
+FROM pubsub.main.topics() WHERE topic = 'payments';
 ----
-<REGEX>:.*
+payments	critical	604800.0	true	[us-central1, us-east1]	BINARY
+
+query TTT
+SELECT topic, ingestion_source, ingestion_settings::JSON->'awsKinesis'->>'state' FROM pubsub.main.topics() WHERE ingestion_source IS NOT NULL;
+----
+clickstream-import	awsKinesis	ACTIVE
+
+query TTTTTTT
+SELECT subscription, type, push_endpoint_host, push_oidc_service_account, push_unwrapped::VARCHAR, coalesce(bigquery_table, cloud_storage_bucket), export_state
+FROM pubsub.main.subscriptions() ORDER BY subscription;
+----
+clicks-archive	cloud_storage	NULL	NULL	NULL	prod-shop-clicks	PERMISSION_DENIED
+payments-bq	bigquery	NULL	NULL	NULL	prod-shop.analytics.payments	ACTIVE
+payments-push	push	hooks.example.com	pusher@prod-shop.iam.gserviceaccount.com	true	NULL	NULL
+payments-worker	pull	NULL	NULL	NULL	NULL	NULL
+
+# Push tokens never leak: no column holds the endpoint path, query or audience.
+query I
+SELECT count(*) FROM pubsub.main.subscriptions() s WHERE s::VARCHAR LIKE '%SECRET%' OR s::VARCHAR LIKE '%audience%';
+----
+0
+
+# Dead-letter policy without maxDeliveryAttempts uses the API default (5);
+# an empty expirationPolicy means "never expires".
+query TITR
+SELECT subscription, max_delivery_attempts, enable_exactly_once_delivery, expiration_ttl_seconds FROM pubsub.main.subscriptions()
+WHERE subscription IN ('payments-worker', 'payments-push') ORDER BY subscription;
+----
+payments-push	NULL	false	NULL
+payments-worker	5	true	NULL
+
+query TTTT
+SELECT schema, type, revision_id, revision_create_time::VARCHAR FROM pubsub.main.schemas();
+----
+payment-proto	PROTOCOL_BUFFER	e5f6a7b8	2026-03-02 10:00:00+00
+
+query TT
+SELECT revision_id, revision_create_time::VARCHAR FROM pubsub.main.schema_revisions('projects/prod-shop/schemas/payment-proto') ORDER BY revision_create_time;
+----
+a1b2c3d4	2026-01-15 09:30:00+00
+e5f6a7b8	2026-03-02 10:00:00+00
+
+# ------------------------------------------------------------------ IAM (flattened)
+
+query TTTTT
+SELECT resource_type, split_part(resource, '/', 4), role, member, member_type FROM pubsub.main.iam_policies() WHERE member IS NOT NULL ORDER BY ALL;
+----
+schema	payment-proto	roles/pubsub.viewer	domain:example.com	domain
+subscription	payments-bq	roles/pubsub.subscriber	serviceAccount:service-123@gcp-sa-pubsub.iam.gserviceaccount.com	serviceAccount
+subscription	payments-worker	roles/pubsub.subscriber	deleted:serviceAccount:old@prod-shop.iam.gserviceaccount.com?uid=1	deleted
+subscription	payments-worker	roles/pubsub.subscriber	serviceAccount:worker@prod-shop.iam.gserviceaccount.com	serviceAccount
+topic	clickstream-import	roles/pubsub.subscriber	allUsers	allUsers
+topic	payments	roles/pubsub.publisher	group:payments-eng@example.com	group
+topic	payments	roles/pubsub.publisher	serviceAccount:checkout@prod-shop.iam.gserviceaccount.com	serviceAccount
+topic	payments	roles/pubsub.viewer	user:ada@example.com	user
+
+# Empty policies and unreadable ones stay visible.
+query TTT
+SELECT split_part(resource, '/', 4), role IS NULL, coalesce(error, '-') FROM pubsub.main.iam_policies() WHERE member IS NULL ORDER BY 1;
+----
+audit	true	PERMISSION_DENIED
+clicks-archive	true	-
+payments-push	true	-
+
+query TTI
+SELECT condition_title, condition_expression, policy_version FROM pubsub.main.iam_policies(resource_type := 'topic', resource := 'payments') WHERE condition_title IS NOT NULL;
+----
+business-hours	request.time.getHours('UTC') < 18	3
+
+query I
+SELECT count(*) FROM pubsub.main.iam_policies(resource_type := 'subscription');
+----
+5
+
+# ------------------------------------------------------------------ Cloud Monitoring
+
+# Long rows (labels, ts, value), sorted oldest first per series, two API pages.
+query TTTR
+SELECT subscription, ts::VARCHAR, metric_kind, value FROM pubsub.main.time_series('subscription/num_undelivered_messages',
+  start_time := TIMESTAMPTZ '2026-01-01 00:00:00+00', end_time := TIMESTAMPTZ '2026-01-01 00:03:00+00') ORDER BY subscription, ts;
+----
+payments-bq	2026-01-01 00:00:00+00	GAUGE	0.0
+payments-bq	2026-01-01 00:01:00+00	GAUGE	0.0
+payments-bq	2026-01-01 00:02:00+00	GAUGE	2.0
+payments-worker	2026-01-01 00:00:00+00	GAUGE	120.0
+payments-worker	2026-01-01 00:01:00+00	GAUGE	340.0
+payments-worker	2026-01-01 00:02:00+00	GAUGE	560.0
+
+query TTR
+SELECT labels['subscription_id'], resource_type, max(value) FROM pubsub.main.time_series('pubsub.googleapis.com/subscription/num_undelivered_messages',
+  subscription := 'payments-worker', start_time := TIMESTAMPTZ '2026-01-01 00:00:00+00', end_time := TIMESTAMPTZ '2026-01-01 00:03:00+00') GROUP BY ALL;
+----
+payments-worker	pubsub_subscription	560.0
+
+# Cross-series reduction runs server-side.
+query R
+SELECT max(value) FROM pubsub.main.time_series('subscription/num_undelivered_messages', reducer := 'REDUCE_SUM',
+  start_time := TIMESTAMPTZ '2026-01-01 00:00:00+00', end_time := TIMESTAMPTZ '2026-01-01 00:03:00+00');
+----
+562.0
+
+# *_count metrics are summed per period by default.
+query TR
+SELECT labels['response_code'], sum(value) FROM pubsub.main.time_series('topic/send_request_count', topic := 'payments', alignment_seconds := 300,
+  start_time := TIMESTAMPTZ '2026-01-01 00:00:00+00', end_time := TIMESTAMPTZ '2026-01-01 01:00:00+00') GROUP BY ALL ORDER BY 1;
+----
+invalid_argument	1.0
+success	75.0
+
+# Distributions report their mean; alignment_seconds := 0 sends raw points.
+query TRT
+SELECT value_type, value, unit FROM pubsub.main.time_series('topic/message_sizes', topic := 'payments', alignment_seconds := 0,
+  start_time := TIMESTAMPTZ '2026-01-01 00:00:00+00', end_time := TIMESTAMPTZ '2026-01-01 01:00:00+00');
+----
+DISTRIBUTION	812.5	By
 
 statement error
-SELECT * FROM pubsub.main.fetch_items('{PUBSUB_MOCK_API}', page_size := 5000);
+SELECT * FROM pubsub.main.time_series('subscription/num_undelivered_messages', start_time := TIMESTAMPTZ '2026-01-02 00:00:00+00', end_time := TIMESTAMPTZ '2026-01-01 00:00:00+00');
 ----
-<REGEX>:.*
+must be before
+
+query TTIR
+SELECT subscription, ts::VARCHAR, undelivered_messages, oldest_unacked_age_seconds FROM pubsub.main.subscription_backlog(end_time := TIMESTAMPTZ '2026-01-01 00:05:00+00') ORDER BY subscription;
+----
+payments-bq	2026-01-01 00:02:00+00	2	NULL
+payments-push	2026-01-01 00:00:00+00	NULL	5.0
+payments-worker	2026-01-01 00:02:00+00	560	180.0
+
+query TIR
+SELECT subscription, undelivered_messages, oldest_unacked_age_seconds FROM pubsub.main.subscription_backlog(subscription := 'payments-worker', end_time := TIMESTAMPTZ '2026-01-01 00:05:00+00');
+----
+payments-worker	560	180.0
+
+query TTT
+SELECT capability, available::VARCHAR, status FROM pubsub.main.access_check() ORDER BY capability;
+----
+attach_subscription	true	OK
+list_schemas	false	PERMISSION_DENIED
+list_snapshots	true	OK
+list_subscriptions	true	OK
+list_topics	true	OK
+monitoring_metrics	true	OK
+read_iam_policy	true	OK
+
+# ------------------------------------------------------------------ other credentials and errors
+
+# An OAuth access token, selected by name; project := overrides the secret.
+statement ok
+CREATE SECRET tok (TYPE gcp_pubsub, PROJECT_ID 'vgi-test', ACCESS_TOKEN 'test-token', ENDPOINT '{PUBSUB_FIXTURE_AUTH_URL}');
+
+query I
+SELECT count(*) FROM pubsub.main.topics(secret_name := 'tok', project := 'prod-shop');
+----
+3
+
+statement ok
+CREATE SECRET badtok (TYPE gcp_pubsub, PROJECT_ID 'prod-shop', ACCESS_TOKEN 'wrong-token', ENDPOINT '{PUBSUB_FIXTURE_AUTH_URL}');
+
+statement error
+SELECT * FROM pubsub.main.topics(secret_name := 'badtok');
+----
+UNAUTHENTICATED
+
+statement error
+SELECT * FROM pubsub.main.topics(secret_name := 'no_such_secret');
+----
+no gcp_pubsub secret named
+
+statement error
+SELECT * FROM pubsub.main.topics(secret_name := 'tok', project := 'denied-project');
+----
+PERMISSION_DENIED
+
+statement error
+SELECT * FROM pubsub.main.topics(project := 'Bad Project!');
+----
+invalid project id

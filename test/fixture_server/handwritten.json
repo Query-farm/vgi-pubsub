@@ -1,0 +1,134 @@
+{
+ "GET /v1/projects/denied-project/topics?pageSize=100": {
+  "body": "{\"error\": {\"code\": 403, \"message\": \"User not authorized to perform this action.\", \"status\": \"PERMISSION_DENIED\"}}",
+  "status": 403
+ },
+ "GET /v1/projects/prod-shop/schemas/payment-proto:getIamPolicy?options.requestedPolicyVersion=3": {
+  "body": "{\"bindings\": [{\"members\": [\"domain:example.com\"], \"role\": \"roles/pubsub.viewer\"}], \"etag\": \"BwYA7\", \"version\": 1}",
+  "status": 200
+ },
+ "GET /v1/projects/prod-shop/schemas/payment-proto:listRevisions?pageSize=100&view=FULL": {
+  "body": "{\"schemas\": [{\"definition\": \"syntax = \\\"proto3\\\";\\nmessage Payment {\\n  string id = 1;\\n  int64 amount_cents = 2;\\n}\\n\", \"name\": \"projects/prod-shop/schemas/payment-proto\", \"revisionCreateTime\": \"2026-03-02T10:00:00Z\", \"revisionId\": \"e5f6a7b8\", \"type\": \"PROTOCOL_BUFFER\"}, {\"definition\": \"syntax = \\\"proto3\\\";\\nmessage Payment {\\n  string id = 1;\\n}\\n\", \"name\": \"projects/prod-shop/schemas/payment-proto\", \"revisionCreateTime\": \"2026-01-15T09:30:00Z\", \"revisionId\": \"a1b2c3d4\", \"type\": \"PROTOCOL_BUFFER\"}]}",
+  "status": 200
+ },
+ "GET /v1/projects/prod-shop/schemas?pageSize=1": {
+  "body": "{\"error\": {\"code\": 403, \"message\": \"User not authorized to perform this action.\", \"status\": \"PERMISSION_DENIED\"}}",
+  "status": 403
+ },
+ "GET /v1/projects/prod-shop/schemas?pageSize=100": {
+  "body": "{\"schemas\": [{\"name\": \"projects/prod-shop/schemas/payment-proto\", \"revisionId\": \"e5f6a7b8\", \"type\": \"PROTOCOL_BUFFER\"}]}",
+  "status": 200
+ },
+ "GET /v1/projects/prod-shop/schemas?pageSize=100&view=FULL": {
+  "body": "{\"schemas\": [{\"definition\": \"syntax = \\\"proto3\\\";\\nmessage Payment {\\n  string id = 1;\\n  int64 amount_cents = 2;\\n}\\n\", \"name\": \"projects/prod-shop/schemas/payment-proto\", \"revisionCreateTime\": \"2026-03-02T10:00:00Z\", \"revisionId\": \"e5f6a7b8\", \"type\": \"PROTOCOL_BUFFER\"}]}",
+  "status": 200
+ },
+ "GET /v1/projects/prod-shop/snapshots?pageSize=1": {
+  "body": "{}",
+  "status": 200
+ },
+ "GET /v1/projects/prod-shop/snapshots?pageSize=100": {
+  "body": "{}",
+  "status": 200
+ },
+ "GET /v1/projects/prod-shop/subscriptions/clicks-archive:getIamPolicy?options.requestedPolicyVersion=3": {
+  "body": "{\"etag\": \"BwYA5\", \"version\": 1}",
+  "status": 200
+ },
+ "GET /v1/projects/prod-shop/subscriptions/payments-bq:getIamPolicy?options.requestedPolicyVersion=3": {
+  "body": "{\"bindings\": [{\"members\": [\"serviceAccount:service-123@gcp-sa-pubsub.iam.gserviceaccount.com\"], \"role\": \"roles/pubsub.subscriber\"}], \"etag\": \"BwYA4\", \"version\": 1}",
+  "status": 200
+ },
+ "GET /v1/projects/prod-shop/subscriptions/payments-push:getIamPolicy?options.requestedPolicyVersion=3": {
+  "body": "{\"etag\": \"BwYA3\", \"version\": 1}",
+  "status": 200
+ },
+ "GET /v1/projects/prod-shop/subscriptions/payments-worker:getIamPolicy?options.requestedPolicyVersion=3": {
+  "body": "{\"bindings\": [{\"members\": [\"serviceAccount:worker@prod-shop.iam.gserviceaccount.com\", \"deleted:serviceAccount:old@prod-shop.iam.gserviceaccount.com?uid=1\"], \"role\": \"roles/pubsub.subscriber\"}], \"etag\": \"BwYA6\", \"version\": 1}",
+  "status": 200
+ },
+ "GET /v1/projects/prod-shop/subscriptions?pageSize=1": {
+  "body": "{\"nextPageToken\": \"s2\", \"subscriptions\": [{\"ackDeadlineSeconds\": 20, \"expirationPolicy\": {}, \"messageRetentionDuration\": \"604800s\", \"name\": \"projects/prod-shop/subscriptions/payments-push\", \"pushConfig\": {\"attributes\": {\"x-goog-version\": \"v1\"}, \"noWrapper\": {\"writeMetadata\": true}, \"oidcToken\": {\"audience\": \"https://hooks.example.com/secret-audience\", \"serviceAccountEmail\": \"pusher@prod-shop.iam.gserviceaccount.com\"}, \"pushEndpoint\": \"https://hooks.example.com/pubsub/receive?token=SECRET-IN-URL\"}, \"retryPolicy\": {\"maximumBackoff\": \"600s\", \"minimumBackoff\": \"10s\"}, \"state\": \"ACTIVE\", \"topic\": \"projects/prod-shop/topics/payments\"}]}",
+  "status": 200
+ },
+ "GET /v1/projects/prod-shop/subscriptions?pageSize=100": {
+  "body": "{\"subscriptions\": [{\"ackDeadlineSeconds\": 20, \"expirationPolicy\": {}, \"messageRetentionDuration\": \"604800s\", \"name\": \"projects/prod-shop/subscriptions/payments-push\", \"pushConfig\": {\"attributes\": {\"x-goog-version\": \"v1\"}, \"noWrapper\": {\"writeMetadata\": true}, \"oidcToken\": {\"audience\": \"https://hooks.example.com/secret-audience\", \"serviceAccountEmail\": \"pusher@prod-shop.iam.gserviceaccount.com\"}, \"pushEndpoint\": \"https://hooks.example.com/pubsub/receive?token=SECRET-IN-URL\"}, \"retryPolicy\": {\"maximumBackoff\": \"600s\", \"minimumBackoff\": \"10s\"}, \"state\": \"ACTIVE\", \"topic\": \"projects/prod-shop/topics/payments\"}, {\"ackDeadlineSeconds\": 60, \"bigqueryConfig\": {\"serviceAccountEmail\": \"bq-writer@prod-shop.iam.gserviceaccount.com\", \"state\": \"ACTIVE\", \"table\": \"prod-shop.analytics.payments\", \"useTopicSchema\": true, \"writeMetadata\": true}, \"messageRetentionDuration\": \"604800s\", \"name\": \"projects/prod-shop/subscriptions/payments-bq\", \"state\": \"ACTIVE\", \"topic\": \"projects/prod-shop/topics/payments\"}, {\"ackDeadlineSeconds\": 300, \"cloudStorageConfig\": {\"avroConfig\": {\"writeMetadata\": true}, \"bucket\": \"prod-shop-clicks\", \"filenamePrefix\": \"clicks/\", \"maxDuration\": \"300s\", \"state\": \"PERMISSION_DENIED\"}, \"messageRetentionDuration\": \"604800s\", \"name\": \"projects/prod-shop/subscriptions/clicks-archive\", \"state\": \"RESOURCE_ERROR\", \"topic\": \"projects/prod-shop/topics/clickstream-import\"}, {\"ackDeadlineSeconds\": 10, \"deadLetterPolicy\": {\"deadLetterTopic\": \"projects/prod-shop/topics/audit\"}, \"enableExactlyOnceDelivery\": true, \"labels\": {\"team\": \"billing\"}, \"messageRetentionDuration\": \"86400s\", \"name\": \"projects/prod-shop/subscriptions/payments-worker\", \"state\": \"ACTIVE\", \"topic\": \"projects/prod-shop/topics/payments\"}]}",
+  "status": 200
+ },
+ "GET /v1/projects/prod-shop/topics/audit:getIamPolicy?options.requestedPolicyVersion=3": {
+  "body": "{\"error\": {\"code\": 403, \"message\": \"User not authorized to perform this action.\", \"status\": \"PERMISSION_DENIED\"}}",
+  "status": 403
+ },
+ "GET /v1/projects/prod-shop/topics/clickstream-import:getIamPolicy?options.requestedPolicyVersion=3": {
+  "body": "{\"bindings\": [{\"members\": [\"allUsers\"], \"role\": \"roles/pubsub.subscriber\"}], \"etag\": \"BwYA2\", \"version\": 1}",
+  "status": 200
+ },
+ "GET /v1/projects/prod-shop/topics/payments:getIamPolicy?options.requestedPolicyVersion=3": {
+  "body": "{\"bindings\": [{\"members\": [\"serviceAccount:checkout@prod-shop.iam.gserviceaccount.com\", \"group:payments-eng@example.com\"], \"role\": \"roles/pubsub.publisher\"}, {\"condition\": {\"expression\": \"request.time.getHours('UTC') < 18\", \"title\": \"business-hours\"}, \"members\": [\"user:ada@example.com\"], \"role\": \"roles/pubsub.viewer\"}], \"etag\": \"BwYA1\", \"version\": 3}",
+  "status": 200
+ },
+ "GET /v1/projects/prod-shop/topics?pageSize=1": {
+  "body": "{\"nextPageToken\": \"t2\", \"topics\": [{\"kmsKeyName\": \"projects/prod-shop/locations/us/keyRings/pubsub/cryptoKeys/payments\", \"labels\": {\"team\": \"billing\", \"tier\": \"critical\"}, \"messageRetentionDuration\": \"604800s\", \"messageStoragePolicy\": {\"allowedPersistenceRegions\": [\"us-central1\", \"us-east1\"], \"enforceInTransit\": true}, \"name\": \"projects/prod-shop/topics/payments\", \"satisfiesPzs\": false, \"schemaSettings\": {\"encoding\": \"BINARY\", \"firstRevisionId\": \"a1b2c3d4\", \"lastRevisionId\": \"e5f6a7b8\", \"schema\": \"projects/prod-shop/schemas/payment-proto\"}, \"state\": \"ACTIVE\"}]}",
+  "status": 200
+ },
+ "GET /v1/projects/prod-shop/topics?pageSize=100": {
+  "body": "{\"topics\": [{\"kmsKeyName\": \"projects/prod-shop/locations/us/keyRings/pubsub/cryptoKeys/payments\", \"labels\": {\"team\": \"billing\", \"tier\": \"critical\"}, \"messageRetentionDuration\": \"604800s\", \"messageStoragePolicy\": {\"allowedPersistenceRegions\": [\"us-central1\", \"us-east1\"], \"enforceInTransit\": true}, \"name\": \"projects/prod-shop/topics/payments\", \"satisfiesPzs\": false, \"schemaSettings\": {\"encoding\": \"BINARY\", \"firstRevisionId\": \"a1b2c3d4\", \"lastRevisionId\": \"e5f6a7b8\", \"schema\": \"projects/prod-shop/schemas/payment-proto\"}, \"state\": \"ACTIVE\"}, {\"ingestionDataSourceSettings\": {\"awsKinesis\": {\"awsRoleArn\": \"arn:aws:iam::111122223333:role/pubsub-import\", \"consumerArn\": \"arn:aws:kinesis:us-east-1:111122223333:stream/clicks/consumer/gcp:1\", \"gcpServiceAccount\": \"importer@prod-shop.iam.gserviceaccount.com\", \"state\": \"ACTIVE\", \"streamArn\": \"arn:aws:kinesis:us-east-1:111122223333:stream/clicks\"}}, \"labels\": {}, \"name\": \"projects/prod-shop/topics/clickstream-import\", \"state\": \"ACTIVE\"}, {\"name\": \"projects/prod-shop/topics/audit\"}]}",
+  "status": 200
+ },
+ "GET /v3/projects/prod-shop/timeSeries?aggregation.alignmentPeriod=300s&aggregation.perSeriesAligner=ALIGN_SUM&filter=metric.type+%3D+%22pubsub.googleapis.com%2Ftopic%2Fsend_request_count%22+AND+resource.labels.topic_id+%3D+%22payments%22&pageSize=1000": {
+  "body": "{\"timeSeries\": [{\"metric\": {\"labels\": {\"response_class\": \"success\", \"response_code\": \"success\"}, \"type\": \"pubsub.googleapis.com/topic/send_request_count\"}, \"metricKind\": \"DELTA\", \"points\": [{\"interval\": {\"endTime\": \"2026-01-01T00:01:00Z\", \"startTime\": \"2026-01-01T00:01:00Z\"}, \"value\": {\"int64Value\": \"45\"}}, {\"interval\": {\"endTime\": \"2026-01-01T00:00:00Z\", \"startTime\": \"2026-01-01T00:00:00Z\"}, \"value\": {\"int64Value\": \"30\"}}], \"resource\": {\"labels\": {\"project_id\": \"prod-shop\", \"topic_id\": \"payments\"}, \"type\": \"pubsub_topic\"}, \"unit\": \"1\", \"valueType\": \"INT64\"}, {\"metric\": {\"labels\": {\"response_class\": \"invalid\", \"response_code\": \"invalid_argument\"}, \"type\": \"pubsub.googleapis.com/topic/send_request_count\"}, \"metricKind\": \"DELTA\", \"points\": [{\"interval\": {\"endTime\": \"2026-01-01T00:01:00Z\", \"startTime\": \"2026-01-01T00:01:00Z\"}, \"value\": {\"int64Value\": \"0\"}}, {\"interval\": {\"endTime\": \"2026-01-01T00:00:00Z\", \"startTime\": \"2026-01-01T00:00:00Z\"}, \"value\": {\"int64Value\": \"1\"}}], \"resource\": {\"labels\": {\"project_id\": \"prod-shop\", \"topic_id\": \"payments\"}, \"type\": \"pubsub_topic\"}, \"unit\": \"1\", \"valueType\": \"INT64\"}]}",
+  "status": 200
+ },
+ "GET /v3/projects/prod-shop/timeSeries?aggregation.alignmentPeriod=60s&aggregation.crossSeriesReducer=REDUCE_SUM&aggregation.perSeriesAligner=ALIGN_MEAN&filter=metric.type+%3D+%22pubsub.googleapis.com%2Fsubscription%2Fnum_undelivered_messages%22&pageSize=1000": {
+  "body": "{\"timeSeries\": [{\"metric\": {\"labels\": {}, \"type\": \"pubsub.googleapis.com/subscription/num_undelivered_messages\"}, \"metricKind\": \"GAUGE\", \"points\": [{\"interval\": {\"endTime\": \"2026-01-01T00:02:00Z\", \"startTime\": \"2026-01-01T00:02:00Z\"}, \"value\": {\"int64Value\": \"562\"}}, {\"interval\": {\"endTime\": \"2026-01-01T00:01:00Z\", \"startTime\": \"2026-01-01T00:01:00Z\"}, \"value\": {\"int64Value\": \"340\"}}, {\"interval\": {\"endTime\": \"2026-01-01T00:00:00Z\", \"startTime\": \"2026-01-01T00:00:00Z\"}, \"value\": {\"int64Value\": \"120\"}}], \"resource\": {\"labels\": {\"project_id\": \"prod-shop\"}, \"type\": \"pubsub_subscription\"}, \"unit\": \"1\", \"valueType\": \"INT64\"}]}",
+  "status": 200
+ },
+ "GET /v3/projects/prod-shop/timeSeries?aggregation.alignmentPeriod=60s&aggregation.perSeriesAligner=ALIGN_MAX&filter=metric.type+%3D+%22pubsub.googleapis.com%2Fsubscription%2Fnum_undelivered_messages%22&pageSize=10000": {
+  "body": "{\"timeSeries\": [{\"metric\": {\"labels\": {}, \"type\": \"pubsub.googleapis.com/subscription/num_undelivered_messages\"}, \"metricKind\": \"GAUGE\", \"points\": [{\"interval\": {\"endTime\": \"2026-01-01T00:02:00Z\", \"startTime\": \"2026-01-01T00:02:00Z\"}, \"value\": {\"int64Value\": \"560\"}}, {\"interval\": {\"endTime\": \"2026-01-01T00:01:00Z\", \"startTime\": \"2026-01-01T00:01:00Z\"}, \"value\": {\"int64Value\": \"340\"}}, {\"interval\": {\"endTime\": \"2026-01-01T00:00:00Z\", \"startTime\": \"2026-01-01T00:00:00Z\"}, \"value\": {\"int64Value\": \"120\"}}], \"resource\": {\"labels\": {\"project_id\": \"prod-shop\", \"subscription_id\": \"payments-worker\"}, \"type\": \"pubsub_subscription\"}, \"unit\": \"1\", \"valueType\": \"INT64\"}, {\"metric\": {\"labels\": {}, \"type\": \"pubsub.googleapis.com/subscription/num_undelivered_messages\"}, \"metricKind\": \"GAUGE\", \"points\": [{\"interval\": {\"endTime\": \"2026-01-01T00:02:00Z\", \"startTime\": \"2026-01-01T00:02:00Z\"}, \"value\": {\"int64Value\": \"2\"}}, {\"interval\": {\"endTime\": \"2026-01-01T00:01:00Z\", \"startTime\": \"2026-01-01T00:01:00Z\"}, \"value\": {\"int64Value\": \"0\"}}, {\"interval\": {\"endTime\": \"2026-01-01T00:00:00Z\", \"startTime\": \"2026-01-01T00:00:00Z\"}, \"value\": {\"int64Value\": \"0\"}}], \"resource\": {\"labels\": {\"project_id\": \"prod-shop\", \"subscription_id\": \"payments-bq\"}, \"type\": \"pubsub_subscription\"}, \"unit\": \"1\", \"valueType\": \"INT64\"}]}",
+  "status": 200
+ },
+ "GET /v3/projects/prod-shop/timeSeries?aggregation.alignmentPeriod=60s&aggregation.perSeriesAligner=ALIGN_MAX&filter=metric.type+%3D+%22pubsub.googleapis.com%2Fsubscription%2Fnum_undelivered_messages%22+AND+resource.labels.subscription_id+%3D+%22payments-worker%22&pageSize=10000": {
+  "body": "{\"timeSeries\": [{\"metric\": {\"labels\": {}, \"type\": \"pubsub.googleapis.com/subscription/num_undelivered_messages\"}, \"metricKind\": \"GAUGE\", \"points\": [{\"interval\": {\"endTime\": \"2026-01-01T00:02:00Z\", \"startTime\": \"2026-01-01T00:02:00Z\"}, \"value\": {\"int64Value\": \"560\"}}, {\"interval\": {\"endTime\": \"2026-01-01T00:01:00Z\", \"startTime\": \"2026-01-01T00:01:00Z\"}, \"value\": {\"int64Value\": \"340\"}}, {\"interval\": {\"endTime\": \"2026-01-01T00:00:00Z\", \"startTime\": \"2026-01-01T00:00:00Z\"}, \"value\": {\"int64Value\": \"120\"}}], \"resource\": {\"labels\": {\"project_id\": \"prod-shop\", \"subscription_id\": \"payments-worker\"}, \"type\": \"pubsub_subscription\"}, \"unit\": \"1\", \"valueType\": \"INT64\"}]}",
+  "status": 200
+ },
+ "GET /v3/projects/prod-shop/timeSeries?aggregation.alignmentPeriod=60s&aggregation.perSeriesAligner=ALIGN_MAX&filter=metric.type+%3D+%22pubsub.googleapis.com%2Fsubscription%2Foldest_unacked_message_age%22&pageSize=10000": {
+  "body": "{\"timeSeries\": [{\"metric\": {\"labels\": {}, \"type\": \"pubsub.googleapis.com/subscription/oldest_unacked_message_age\"}, \"metricKind\": \"GAUGE\", \"points\": [{\"interval\": {\"endTime\": \"2026-01-01T00:02:00Z\", \"startTime\": \"2026-01-01T00:02:00Z\"}, \"value\": {\"int64Value\": \"180\"}}, {\"interval\": {\"endTime\": \"2026-01-01T00:01:00Z\", \"startTime\": \"2026-01-01T00:01:00Z\"}, \"value\": {\"int64Value\": \"120\"}}, {\"interval\": {\"endTime\": \"2026-01-01T00:00:00Z\", \"startTime\": \"2026-01-01T00:00:00Z\"}, \"value\": {\"int64Value\": \"60\"}}], \"resource\": {\"labels\": {\"project_id\": \"prod-shop\", \"subscription_id\": \"payments-worker\"}, \"type\": \"pubsub_subscription\"}, \"unit\": \"s\", \"valueType\": \"INT64\"}, {\"metric\": {\"labels\": {}, \"type\": \"pubsub.googleapis.com/subscription/oldest_unacked_message_age\"}, \"metricKind\": \"GAUGE\", \"points\": [{\"interval\": {\"endTime\": \"2026-01-01T00:00:00Z\", \"startTime\": \"2026-01-01T00:00:00Z\"}, \"value\": {\"int64Value\": \"5\"}}], \"resource\": {\"labels\": {\"project_id\": \"prod-shop\", \"subscription_id\": \"payments-push\"}, \"type\": \"pubsub_subscription\"}, \"unit\": \"s\", \"valueType\": \"INT64\"}]}",
+  "status": 200
+ },
+ "GET /v3/projects/prod-shop/timeSeries?aggregation.alignmentPeriod=60s&aggregation.perSeriesAligner=ALIGN_MAX&filter=metric.type+%3D+%22pubsub.googleapis.com%2Fsubscription%2Foldest_unacked_message_age%22+AND+resource.labels.subscription_id+%3D+%22payments-worker%22&pageSize=10000": {
+  "body": "{\"timeSeries\": [{\"metric\": {\"labels\": {}, \"type\": \"pubsub.googleapis.com/subscription/oldest_unacked_message_age\"}, \"metricKind\": \"GAUGE\", \"points\": [{\"interval\": {\"endTime\": \"2026-01-01T00:02:00Z\", \"startTime\": \"2026-01-01T00:02:00Z\"}, \"value\": {\"int64Value\": \"180\"}}, {\"interval\": {\"endTime\": \"2026-01-01T00:01:00Z\", \"startTime\": \"2026-01-01T00:01:00Z\"}, \"value\": {\"int64Value\": \"120\"}}, {\"interval\": {\"endTime\": \"2026-01-01T00:00:00Z\", \"startTime\": \"2026-01-01T00:00:00Z\"}, \"value\": {\"int64Value\": \"60\"}}], \"resource\": {\"labels\": {\"project_id\": \"prod-shop\", \"subscription_id\": \"payments-worker\"}, \"type\": \"pubsub_subscription\"}, \"unit\": \"s\", \"valueType\": \"INT64\"}]}",
+  "status": 200
+ },
+ "GET /v3/projects/prod-shop/timeSeries?aggregation.alignmentPeriod=60s&aggregation.perSeriesAligner=ALIGN_MEAN&filter=metric.type+%3D+%22pubsub.googleapis.com%2Fsubscription%2Fnum_undelivered_messages%22&pageSize=1000": {
+  "body": "{\"nextPageToken\": \"page-2\", \"timeSeries\": [{\"metric\": {\"labels\": {}, \"type\": \"pubsub.googleapis.com/subscription/num_undelivered_messages\"}, \"metricKind\": \"GAUGE\", \"points\": [{\"interval\": {\"endTime\": \"2026-01-01T00:02:00Z\", \"startTime\": \"2026-01-01T00:02:00Z\"}, \"value\": {\"int64Value\": \"560\"}}, {\"interval\": {\"endTime\": \"2026-01-01T00:01:00Z\", \"startTime\": \"2026-01-01T00:01:00Z\"}, \"value\": {\"int64Value\": \"340\"}}, {\"interval\": {\"endTime\": \"2026-01-01T00:00:00Z\", \"startTime\": \"2026-01-01T00:00:00Z\"}, \"value\": {\"int64Value\": \"120\"}}], \"resource\": {\"labels\": {\"project_id\": \"prod-shop\", \"subscription_id\": \"payments-worker\"}, \"type\": \"pubsub_subscription\"}, \"unit\": \"1\", \"valueType\": \"INT64\"}], \"unit\": \"1\"}",
+  "status": 200
+ },
+ "GET /v3/projects/prod-shop/timeSeries?aggregation.alignmentPeriod=60s&aggregation.perSeriesAligner=ALIGN_MEAN&filter=metric.type+%3D+%22pubsub.googleapis.com%2Fsubscription%2Fnum_undelivered_messages%22&pageSize=1000&pageToken=page-2": {
+  "body": "{\"timeSeries\": [{\"metric\": {\"labels\": {}, \"type\": \"pubsub.googleapis.com/subscription/num_undelivered_messages\"}, \"metricKind\": \"GAUGE\", \"points\": [{\"interval\": {\"endTime\": \"2026-01-01T00:02:00Z\", \"startTime\": \"2026-01-01T00:02:00Z\"}, \"value\": {\"int64Value\": \"2\"}}, {\"interval\": {\"endTime\": \"2026-01-01T00:01:00Z\", \"startTime\": \"2026-01-01T00:01:00Z\"}, \"value\": {\"int64Value\": \"0\"}}, {\"interval\": {\"endTime\": \"2026-01-01T00:00:00Z\", \"startTime\": \"2026-01-01T00:00:00Z\"}, \"value\": {\"int64Value\": \"0\"}}], \"resource\": {\"labels\": {\"project_id\": \"prod-shop\", \"subscription_id\": \"payments-bq\"}, \"type\": \"pubsub_subscription\"}, \"unit\": \"1\", \"valueType\": \"INT64\"}]}",
+  "status": 200
+ },
+ "GET /v3/projects/prod-shop/timeSeries?aggregation.alignmentPeriod=60s&aggregation.perSeriesAligner=ALIGN_MEAN&filter=metric.type+%3D+%22pubsub.googleapis.com%2Fsubscription%2Fnum_undelivered_messages%22+AND+resource.labels.subscription_id+%3D+%22payments-worker%22&pageSize=1000": {
+  "body": "{\"timeSeries\": [{\"metric\": {\"labels\": {}, \"type\": \"pubsub.googleapis.com/subscription/num_undelivered_messages\"}, \"metricKind\": \"GAUGE\", \"points\": [{\"interval\": {\"endTime\": \"2026-01-01T00:02:00Z\", \"startTime\": \"2026-01-01T00:02:00Z\"}, \"value\": {\"int64Value\": \"560\"}}, {\"interval\": {\"endTime\": \"2026-01-01T00:01:00Z\", \"startTime\": \"2026-01-01T00:01:00Z\"}, \"value\": {\"int64Value\": \"340\"}}, {\"interval\": {\"endTime\": \"2026-01-01T00:00:00Z\", \"startTime\": \"2026-01-01T00:00:00Z\"}, \"value\": {\"int64Value\": \"120\"}}], \"resource\": {\"labels\": {\"project_id\": \"prod-shop\", \"subscription_id\": \"payments-worker\"}, \"type\": \"pubsub_subscription\"}, \"unit\": \"1\", \"valueType\": \"INT64\"}]}",
+  "status": 200
+ },
+ "GET /v3/projects/prod-shop/timeSeries?filter=metric.type+%3D+%22pubsub.googleapis.com%2Fsubscription%2Fnum_undelivered_messages%22&pageSize=1": {
+  "body": "{}",
+  "status": 200
+ },
+ "GET /v3/projects/prod-shop/timeSeries?filter=metric.type+%3D+%22pubsub.googleapis.com%2Ftopic%2Fmessage_sizes%22+AND+resource.labels.topic_id+%3D+%22payments%22&pageSize=1000": {
+  "body": "{\"timeSeries\": [{\"metric\": {\"labels\": {}, \"type\": \"pubsub.googleapis.com/topic/message_sizes\"}, \"metricKind\": \"DELTA\", \"points\": [{\"interval\": {\"endTime\": \"2026-01-01T00:01:00Z\", \"startTime\": \"2026-01-01T00:00:00Z\"}, \"value\": {\"distributionValue\": {\"count\": \"4\", \"mean\": 812.5}}}], \"resource\": {\"labels\": {\"project_id\": \"prod-shop\", \"topic_id\": \"payments\"}, \"type\": \"pubsub_topic\"}, \"unit\": \"By\", \"valueType\": \"DISTRIBUTION\"}]}",
+  "status": 200
+ },
+ "GET /v3/projects/vgi-test/timeSeries?aggregation.alignmentPeriod=60s&aggregation.perSeriesAligner=ALIGN_MEAN&filter=metric.type+%3D+%22pubsub.googleapis.com%2Fsubscription%2Fnum_undelivered_messages%22&pageSize=1000": {
+  "body": "{\"error\": {\"code\": 403, \"message\": \"Permission monitoring.timeSeries.list denied (or the resource may not exist).\", \"status\": \"PERMISSION_DENIED\"}}",
+  "status": 403
+ },
+ "GET /v3/projects/vgi-test/timeSeries?filter=metric.type+%3D+%22pubsub.googleapis.com%2Fsubscription%2Fnum_undelivered_messages%22&pageSize=1": {
+  "body": "{\"error\": {\"code\": 403, \"message\": \"Permission monitoring.timeSeries.list denied (or the resource may not exist).\", \"status\": \"PERMISSION_DENIED\"}}",
+  "status": 403
+ },
+ "POST /v1/projects/prod-shop/topics/payments:testIamPermissions {\"permissions\":[\"pubsub.topics.attachSubscription\"]}": {
+  "body": "{\"permissions\": [\"pubsub.topics.attachSubscription\"]}",
+  "status": 200
+ }
+}
